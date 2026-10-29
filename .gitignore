@@ -36,3 +36,7 @@ Thumbs.db
 *.sln
 *.sw?
 
+# Specification and prompts
+BUILD A PROFESSIONAL, MODULAR POS & INVENTORY MANAGEMENT SAAS FRONTEND.md
+*.prompt.md
+

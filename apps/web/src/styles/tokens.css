@@ -1,0 +1,48 @@
+:root {
+  /* White-label configurable tokens - Default: ShelfAware / Mate design */
+  --brand-primary: #0F172A;
+  --brand-50: #F0FDF4;
+  --brand-100: #DCFCE7;
+  --brand-500: #10B981;
+  --brand-600: #059669;
+  --brand-700: #047857;
+
+  /* Dark Navy enterprise sidebar */
+  --sidebar-bg: #090D16;
+  --sidebar-hover: #131B2E;
+  --sidebar-active: #1E293B;
+  --sidebar-border: #1A243D;
+  --sidebar-text: #94A3B8;
+  --sidebar-text-active: #F8FAFC;
+
+  /* Clean workspace surfaces */
+  --surface-bg: #FFFFFF;
+  --surface-muted: #F8FAFC;
+  --surface-card: #FFFFFF;
+  --surface-border: #E2E8F0;
+
+  /* Typography tokens */
+  --content-primary: #0F172A;
+  --content-secondary: #475569;
+  --content-muted: #94A3B8;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Restrained radii */
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-modal: 10px;
+
+  /* Status accents */
+  --color-success: #10B981;
+  --color-success-bg: #ECFDF5;
+  --color-danger: #EF4444;
+  --color-danger-bg: #FEF2F2;
+  --color-warning: #F59E0B;
+  --color-warning-bg: #FFFBEB;
+  --color-info: #3B82F6;
+  --color-info-bg: #EFF6FF;
+
+  /* Table density: compact (36px), normal (44px), relaxed (52px) */
+  --table-row-height: 42px;
+}
+

@@ -1,83 +1,80 @@
-import { apiClient } from '../../../services/api/axiosInstance';
-import { API_CONFIG } from '../../../services/api/apiConfig';
-import { Sale } from '../../../types/domain';
-import { mockStorage } from '../../../mocks/mockStorage';
+import { loadMockDb, saveMockDb } from '@/mocks/mockDb';
+import { API_CONFIG } from '@/services/api/apiConfig';
+import { API_ENDPOINTS, type ApiResponse } from '@/services/api/apiTypes';
+import { axiosInstance } from '@/services/api/axiosInstance';
+import type { Sale } from '@/types/common';
 
-/**
- * Sales API Service
- * ============================================================
- * BACKEND INTEGRATION INSTRUCTIONS:
- * When connecting to your production backend:
- * 1. Set VITE_USE_MOCK_API=false in .env.local
- * 2. Implement the corresponding REST endpoints on your server:
- *    - GET /api/v1/sales (supports query params: search, status, paymentMethod)
- *    - GET /api/v1/sales/:id
- *    - POST /api/v1/sales/:id/void (payload: { reason: string })
- *    - DELETE /api/v1/sales/:id
- * ============================================================
- */
 export const salesApi = {
-  /**
-   * Endpoint: GET /api/v1/sales
-   */
-  async getSales(params?: { search?: string; status?: string; paymentMethod?: string }): Promise<Sale[]> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 100));
-      let list = mockStorage.getSales();
-      if (params?.search) {
-        const q = params.search.toLowerCase();
-        list = list.filter(
-          (s) =>
-            s.transactionNumber.toLowerCase().includes(q) ||
-            s.customerName.toLowerCase().includes(q) ||
-            s.cashierName.toLowerCase().includes(q)
-        );
-      }
-      if (params?.status && params.status !== 'all') {
-        list = list.filter((s) => s.status === params.status);
-      }
-      if (params?.paymentMethod && params.paymentMethod !== 'all') {
-        list = list.filter((s) => s.paymentMethod === params.paymentMethod);
-      }
-      return list;
+  async getSales(): Promise<ApiResponse<Sale[]>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.get<ApiResponse<Sale[]>>(API_ENDPOINTS.SALES.BASE);
+      return data;
     }
-    const res = await apiClient.get<Sale[]>('/sales', { params });
-    return res.data;
+
+    const db = loadMockDb();
+    return {
+      success: true,
+      data: [...db.sales],
+    };
   },
 
-  /**
-   * Endpoint: GET /api/v1/sales/:id
-   */
-  async getSaleById(id: string): Promise<Sale | undefined> {
-    if (API_CONFIG.useMockApi) {
-      const sales = mockStorage.getSales();
-      return sales.find((s) => s.id === id);
+  async voidOrRefundSale(
+    saleId: string,
+    action: 'void' | 'refund',
+    reason: string,
+    performedBy: string
+  ): Promise<ApiResponse<Sale>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<Sale>>(
+        `${API_ENDPOINTS.SALES.BASE}/${saleId}/${action === 'void' ? 'void' : 'refunds'}`,
+        { reason }
+      );
+      return data;
     }
-    const res = await apiClient.get<Sale>(`/sales/${id}`);
-    return res.data;
-  },
 
-  /**
-   * Endpoint: POST /api/v1/sales/:id/void
-   */
-  async voidSale(id: string, reason: string): Promise<Sale> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 150));
-      return mockStorage.voidSale(id, reason);
+    const db = loadMockDb();
+    const sale = db.sales.find((s) => s.id === saleId);
+    if (!sale) {
+      throw new Error('Sale transaction not found.');
     }
-    const res = await apiClient.post<Sale>(`/sales/${id}/void`, { reason });
-    return res.data;
-  },
+    if (sale.status !== 'completed') {
+      throw new Error(`Order ${sale.orderNumber} is already ${sale.status}.`);
+    }
 
-  /**
-   * Endpoint: DELETE /api/v1/sales/:id
-   */
-  async deleteSale(id: string): Promise<boolean> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 150));
-      return mockStorage.deleteSale(id);
+    const nowIso = new Date().toISOString();
+    sale.status = action === 'void' ? 'cancelled' : 'refunded';
+    sale.paymentStatus = action === 'void' ? 'failed' : 'refunded';
+    sale.notes = reason ? `${sale.notes ? `${sale.notes} · ` : ''}${reason}` : sale.notes;
+
+    // Restore stock for returned/voided items and create auditable movement records
+    for (const item of sale.items) {
+      const product = db.products.find((p) => p.id === item.productId);
+      if (product) {
+        const previousBalance = product.stockQuantity;
+        product.stockQuantity = Number((product.stockQuantity + item.quantity).toFixed(2));
+        product.updatedAt = nowIso;
+
+        db.movements.unshift({
+          id: `mov-${Date.now().toString().slice(-4)}-${item.productId}`,
+          productId: product.id,
+          productName: product.name,
+          sku: product.sku,
+          type: 'void_return',
+          quantityChange: item.quantity,
+          previousBalance,
+          newBalance: product.stockQuantity,
+          unit: product.unit,
+          reason: `${action === 'void' ? 'Voided' : 'Refunded'} Order ${sale.orderNumber}: ${reason}`,
+          performedBy,
+          createdAt: nowIso,
+        });
+      }
     }
-    await apiClient.delete(`/sales/${id}`);
-    return true;
+
+    saveMockDb(db);
+    return {
+      success: true,
+      data: { ...sale },
+    };
   },
 };

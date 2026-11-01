@@ -1,0 +1,60 @@
+.statusInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.toneSuccess {
+  color: var(--color-success);
+}
+
+.toneDanger {
+  color: var(--color-danger);
+}
+
+.toneWarning {
+  color: var(--color-warning);
+}
+
+.toneNeutral {
+  color: var(--color-text-secondary);
+}
+
+.symbol {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.subtleTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tagSuccess {
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.tagWarning {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.tagDanger {
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.tagNeutral {
+  background-color: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}

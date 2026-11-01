@@ -1,109 +1,121 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
-import { useAuthStore } from '../../../store/authStore';
-import { Button } from '../../../components/ui/Button';
-import { Input } from '../../../components/ui/Input';
-import { PATHS } from '../../../router/paths';
+import { PRODUCT_BRAND_NAME } from '@/app/config/branding';
+import { PATHS } from '@/app/router/paths';
+import { Button } from '@/components/ui/Button';
+import { loginSchema, type LoginFormValues } from '@/features/auth/schemas/authSchemas';
+import { useAuthStore } from '@/store/authStore';
+import styles from './AuthPages.module.css';
 
-export const LoginPage: React.FC = () => {
+export function LoginPage() {
   const navigate = useNavigate();
-  const { login, status, error, clearError } = useAuthStore();
-  const [email, setEmail] = useState('adeola@adeolafoods.ng');
-  const [password, setPassword] = useState('password123');
+  const login = useAuthStore((s) => s.login);
+  const authError = useAuthStore((s) => s.error);
+  const status = useAuthStore((s) => s.status);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    clearError();
-    const success = await login({ email, password, rememberMe });
-    if (success) {
-      navigate(PATHS.POS);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: 'adebayo@oluwafoodmart.ng',
+      password: 'password123',
+      rememberMe: true,
+    },
+  });
+
+  const onSubmit = async (values: LoginFormValues) => {
+    const ok = await login({ email: values.email, password: values.password });
+    if (ok) {
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser?.role === 'platform_admin') {
+        navigate(PATHS.PLATFORM.DASHBOARD);
+      } else if (currentUser?.role === 'super_business_admin') {
+        navigate(PATHS.BUSINESS_ADMIN.OVERVIEW);
+      } else if (currentUser?.role === 'cashier') {
+        navigate(PATHS.APP.POS);
+      } else {
+        navigate(PATHS.APP.DASHBOARD);
+      }
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-slate-900 tracking-tight text-center">
-          Sign in
-        </h2>
-        <p className="text-xs text-slate-500 text-center mt-1">
-          Enter your credentials
+    <div>
+      <div className={styles.pageHeader}>
+        <h2 className={styles.title}>Sign in to Workspace</h2>
+        <p className={styles.subtitle}>
+          Enter your credentials to access your workspace.
         </p>
       </div>
 
-      {error && (
-        <div className="p-3 rounded-[var(--radius-control)] bg-rose-50 border border-rose-200 text-xs text-rose-700">
-          {error}
+      {authError && <div className={styles.bannerError}>{authError}</div>}
+
+      <form className={styles.form} onSubmit={handleSubmit(onSubmit)} noValidate>
+        <div className={styles.fieldGroup}>
+          <label htmlFor="login-email" className={styles.label}>
+            Email address
+          </label>
+          <input
+            id="login-email"
+            type="email"
+            className={styles.input}
+            placeholder="you@store.ng"
+            {...register('email')}
+          />
+          {errors.email && <span className={styles.errorText}>{errors.email.message}</span>}
         </div>
-      )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Input
-          label="Email Address"
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="name@business.com"
-          leftIcon={<Mail className="w-4 h-4" />}
-        />
-
-        <Input
-          label="Password"
-          type={showPassword ? 'text' : 'password'}
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
-          leftIcon={<Lock className="w-4 h-4" />}
-          rightIcon={
+        <div className={styles.fieldGroup}>
+          <div className={styles.labelRow}>
+            <label htmlFor="login-password" className={styles.label}>
+              Password
+            </label>
+            <Link to={PATHS.AUTH.FORGOT_PASSWORD} className={styles.link}>
+              Forgot password?
+            </Link>
+          </div>
+          <div className={styles.inputWrap}>
+            <input
+              id="login-password"
+              type={showPassword ? 'text' : 'password'}
+              className={styles.input}
+              {...register('password')}
+            />
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="text-slate-400 hover:text-slate-600 focus:outline-none"
+              className={styles.togglePwBtn}
+              onClick={() => setShowPassword((prev) => !prev)}
             >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showPassword ? 'Hide' : 'Show'}
             </button>
-          }
-        />
-
-        <div className="flex items-center justify-between text-xs">
-          <label className="flex items-center gap-2 cursor-pointer text-slate-600 select-none">
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-            />
-            Remember me
-          </label>
-          <Link
-            to={PATHS.FORGOT_PASSWORD}
-            className="font-medium text-emerald-600 hover:text-emerald-500"
-          >
-            Forgot password?
-          </Link>
+          </div>
+          {errors.password && <span className={styles.errorText}>{errors.password.message}</span>}
         </div>
 
-        <Button
-          type="submit"
-          className="w-full"
-          isLoading={status === 'loading'}
-        >
-          Sign In
+        <div className={styles.rowBetween}>
+          <label className={styles.checkboxLabel}>
+            <input type="checkbox" {...register('rememberMe')} />
+            <span>Remember me</span>
+          </label>
+        </div>
+
+        <Button type="submit" size="lg" disabled={status === 'loading'}>
+          {status === 'loading' ? 'Signing in...' : 'Sign in'}
         </Button>
       </form>
 
-      <div className="border-t border-slate-200 pt-4 text-center text-xs text-slate-600">
-        New store or business?{' '}
-        <Link to={PATHS.SIGNUP} className="font-semibold text-emerald-600 hover:text-emerald-500">
+      <div className={styles.footerSwitch}>
+        New to {PRODUCT_BRAND_NAME}?{' '}
+        <Link to={PATHS.AUTH.REGISTER} className={styles.link}>
           Create business account
         </Link>
       </div>
     </div>
   );
-};
-
+}

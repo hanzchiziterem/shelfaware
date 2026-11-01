@@ -1,124 +1,209 @@
-import React, { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
-import { useUserStore } from '../../../store/userStore';
-import { PageHeader } from '../../../components/layout/PageHeader';
-import { Button } from '../../../components/ui/Button';
-import { Input } from '../../../components/ui/Input';
-import { Select } from '../../../components/ui/Select';
-import { Dialog } from '../../../components/ui/Dialog';
-import { Badge } from '../../../components/ui/Badge';
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '../../../components/ui/Table';
-import { Role } from '../../../types/domain';
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/Button';
+import { Dialog } from '@/components/ui/Dialog';
+import { StatusIndicator } from '@/components/ui/StatusIndicator';
+import { useAuthStore } from '@/store/authStore';
+import { useUiStore } from '@/store/uiStore';
+import { useUserStore } from '@/store/userStore';
+import styles from '@/styles/SharedPages.module.css';
+import type { UserRole } from '@/types/common';
+import { formatFullDateTime } from '@/utils/dates';
 
-export const UsersPage: React.FC = () => {
-  const { users, fetchUsers, createUser, toggleActive } = useUserStore();
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [name, setName] = useState('');
+export function UsersPage() {
+  const currentUser = useAuthStore((s) => s.user);
+  const pushToast = useUiStore((s) => s.pushToast);
+  const users = useUserStore((s) => s.users);
+  const fetchUsers = useUserStore((s) => s.fetchUsers);
+  const createUser = useUserStore((s) => s.createUser);
+  const updateUser = useUserStore((s) => s.updateUser);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [role, setRole] = useState<Role>('cashier');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [phone, setPhone] = useState('+234 803 ');
+  const [role, setRole] = useState<UserRole>('cashier');
 
   useEffect(() => {
-    fetchUsers();
+    void fetchUsers();
   }, [fetchUsers]);
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    await createUser({ name, email, role, phone });
-    setIsSubmitting(false);
-    setIsModalOpen(false);
-    setName('');
-    setEmail('');
-    setPhone('');
+    if (!fullName.trim() || !email.trim()) return;
+    const created = await createUser({ fullName, email, phone, role });
+    if (created) {
+      setModalOpen(false);
+      setFullName('');
+      setEmail('');
+      pushToast({
+        title: `Added staff member ${created.fullName} (${created.role})`,
+        tone: 'success',
+      });
+    }
   };
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Team & Staff Access"
-        description="Manage cashier registers, floor managers, and administrator roles."
-        actions={
-          <Button
-            size="sm"
-            onClick={() => setIsModalOpen(true)}
-            leftIcon={<Plus className="w-4 h-4" />}
-          >
-            Invite Staff Member
-          </Button>
+    <div className={styles.pageWrap}>
+      <div className={styles.headerRow}>
+        <div>
+          <h1 className={styles.pageTitle}>Team & Users</h1>
+          <p className={styles.pageSubtitle}>
+            Manage Administrator, Manager, and Cashier staff accounts. In production, role
+            permissions are verified server-side on every API request.
+          </p>
+        </div>
+        <Button variant="primary" onClick={() => setModalOpen(true)}>
+          + Add Staff Member
+        </Button>
+      </div>
+
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Staff Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Assigned Role</th>
+              <th>Account Status</th>
+              <th>Last Active</th>
+              <th style={{ textAlign: 'right' }}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => {
+              const isSelf = currentUser?.id === u.id;
+              return (
+                <tr key={u.id}>
+                  <td style={{ fontWeight: 500 }}>
+                    {u.fullName} {isSelf ? '(You)' : ''}
+                  </td>
+                  <td>{u.email}</td>
+                  <td className="tabular-nums">{u.phone}</td>
+                  <td>
+                    <select
+                      aria-label={`Change role for ${u.fullName}`}
+                      className={styles.select}
+                      style={{ height: '28px', fontSize: '12px' }}
+                      value={u.role}
+                      disabled={isSelf}
+                      onChange={(e) => {
+                        void updateUser(u.id, { role: e.target.value as UserRole });
+                        pushToast({
+                          title: `Updated ${u.fullName} role to ${e.target.value}`,
+                          tone: 'info',
+                        });
+                      }}
+                    >
+                      <option value="administrator">Administrator</option>
+                      <option value="manager">Manager</option>
+                      <option value="cashier">Cashier</option>
+                    </select>
+                  </td>
+                  <td>
+                    {u.status === 'active' ? (
+                      <StatusIndicator tone="success" label="Active" appearance="tag" />
+                    ) : (
+                      <StatusIndicator tone="neutral" label="Inactive" appearance="tag" />
+                    )}
+                  </td>
+                  <td className="tabular-nums" style={{ color: 'var(--color-text-muted)' }}>
+                    {formatFullDateTime(u.lastActiveAt)}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={isSelf}
+                      onClick={() => {
+                        const nextStatus = u.status === 'active' ? 'inactive' : 'active';
+                        void updateUser(u.id, { status: nextStatus });
+                        pushToast({
+                          title: `${u.fullName} marked as ${nextStatus}`,
+                          tone: 'info',
+                        });
+                      }}
+                    >
+                      {u.status === 'active' ? 'Deactivate' : 'Activate'}
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Add Store Staff Member"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={(e) => void handleInvite(e)}>
+              Create Staff Account
+            </Button>
+          </>
         }
-      />
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Staff Name</TableHead>
-            <TableHead>Work Email</TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead>Assigned Role</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Last Active</TableHead>
-            <TableHead className="text-right">Action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {users.map((u) => (
-            <TableRow key={u.id}>
-              <TableCell className="font-semibold text-slate-900">{u.name}</TableCell>
-              <TableCell className="text-slate-600">{u.email}</TableCell>
-              <TableCell className="font-mono text-slate-600">{u.phone || '—'}</TableCell>
-              <TableCell>
-                <span className="capitalize text-xs font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200">
-                  {u.role}
-                </span>
-              </TableCell>
-              <TableCell>
-                {u.isActive ? (
-                  <Badge variant="success" size="sm">Active</Badge>
-                ) : (
-                  <Badge variant="danger" size="sm">Deactivated</Badge>
-                )}
-              </TableCell>
-              <TableCell className="text-slate-500 font-mono text-[11px]">{u.lastActive}</TableCell>
-              <TableCell className="text-right">
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() => toggleActive(u.id)}
-                  className={u.isActive ? 'text-rose-600 hover:bg-rose-50' : 'text-emerald-600 hover:bg-emerald-50'}
-                >
-                  {u.isActive ? 'Deactivate' : 'Activate'}
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <Dialog isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Invite Staff Member">
-        <form onSubmit={handleCreate} className="space-y-3.5">
-          <Input label="Full Name" required value={name} onChange={(e) => setName(e.target.value)} />
-          <Input label="Staff Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-          <Input label="Phone Number" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+234 ..." />
-          <Select label="Role Assignment" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            <option value="cashier">Cashier (POS register operations only)</option>
-            <option value="manager">Store Manager (Inventory, purchases & reports)</option>
-            <option value="admin">Administrator (Full company control)</option>
-          </Select>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button type="submit" size="sm" isLoading={isSubmitting}>Add Staff</Button>
+      >
+        <form className={styles.formStack} onSubmit={handleInvite}>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="usr-name" className={styles.label}>
+              Full Name
+            </label>
+            <input
+              id="usr-name"
+              className={styles.input}
+              placeholder="e.g. Halima Yusuf"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="usr-email" className={styles.label}>
+              Staff Email
+            </label>
+            <input
+              id="usr-email"
+              type="email"
+              className={styles.input}
+              placeholder="halima@oluwafoodmart.ng"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="usr-phone" className={styles.label}>
+              Phone Number
+            </label>
+            <input
+              id="usr-phone"
+              className={styles.input}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="usr-role" className={styles.label}>
+              Role
+            </label>
+            <select
+              id="usr-role"
+              className={styles.select}
+              value={role}
+              onChange={(e) => setRole(e.target.value as UserRole)}
+            >
+              <option value="cashier">Cashier (POS & Orders only, no cost price)</option>
+              <option value="manager">Manager (Inventory, Purchases, Reports & POS)</option>
+              <option value="administrator">Administrator (Full Store & Staff Control)</option>
+            </select>
           </div>
         </form>
       </Dialog>
     </div>
   );
-};
+}

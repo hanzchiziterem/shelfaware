@@ -1,0 +1,339 @@
+.inventoryLayout {
+  display: grid;
+  grid-template-columns: 1fr 376px;
+  min-height: 100vh;
+  background-color: var(--color-background);
+}
+
+.inventoryLayoutFull {
+  grid-template-columns: 1fr;
+}
+
+.mainWorkspace {
+  padding: 28px 32px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pageTitle {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.pageSubtitle {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* 3 gray top summary stat blocks matching the Inventory reference image */
+.statBlocksGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.statBlock {
+  background-color: var(--color-surface-muted);
+  border-radius: var(--radius-card);
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.statBigNumber {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.statCaption {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+/* Clean text tab bar */
+.tabsAndSearchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.underlineTabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.tabBtn {
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabBtn:hover {
+  color: var(--color-text-primary);
+}
+
+.tabBtnActive {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--color-text-primary);
+}
+
+.filterRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.searchField {
+  height: 30px;
+  width: 220px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--color-surface);
+  font-size: 12.5px;
+}
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.invTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.invTable th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  height: 38px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.invTable td {
+  height: var(--table-row-height);
+  padding: var(--table-cell-padding-y) 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  white-space: nowrap;
+}
+
+.invTable tbody tr {
+  cursor: pointer;
+}
+
+.invTable tbody tr:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.activeRow {
+  background-color: var(--color-surface-muted);
+}
+
+.productCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+.itemSquare {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background-color: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Right-side Contextual Detail Drawer */
+.detailDrawer {
+  border-left: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  padding: 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.drawerHeaderRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawerTitle {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--color-text-primary);
+}
+
+.closeDrawerBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.closeDrawerBtn:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-hover);
+}
+
+.drawerActionStrip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.infoSectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 10px;
+}
+
+.infoGridWithThumb {
+  display: grid;
+  grid-template-columns: 1fr 84px;
+  gap: 12px;
+  align-items: start;
+}
+
+.kvList {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  row-gap: 8px;
+  column-gap: 10px;
+  font-size: 12.5px;
+}
+
+.kvKey {
+  color: var(--color-text-muted);
+}
+
+.kvVal {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.productBadgeBox {
+  width: 84px;
+  height: 84px;
+  border-radius: var(--radius-card);
+  background-color: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px;
+}
+
+.statsHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.formStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fieldRow {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.fieldInput,
+.fieldSelect {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--color-surface);
+  font-size: 13px;
+}
+
+@media (max-width: 1180px) {
+  .inventoryLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .detailDrawer {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: min(390px, 92vw);
+    z-index: 65;
+    box-shadow: var(--shadow-modal);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .mainWorkspace {
+    padding: 18px 16px;
+  }
+
+  .statBlocksGrid {
+    grid-template-columns: 1fr;
+  }
+}

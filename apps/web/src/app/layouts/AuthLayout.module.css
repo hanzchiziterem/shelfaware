@@ -1,0 +1,55 @@
+.authContainer {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: clamp(260px, 30.5vw, 420px) 1fr;
+  background-color: var(--color-background);
+}
+
+.brandPanel {
+  background-color: var(--color-sidebar);
+  border-right: 1px solid var(--color-sidebar-border);
+}
+
+.formWorkspace {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background-color: var(--color-background);
+}
+
+.formCard {
+  width: 100%;
+  max-width: 420px;
+}
+
+.logoHeader {
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.authLogoImg {
+  height: 52px;
+  width: auto;
+  max-width: 240px;
+  object-fit: contain;
+  display: block;
+}
+
+/* Remove side element on smaller screens */
+@media (max-width: 960px) {
+  .authContainer {
+    grid-template-columns: 1fr;
+  }
+
+  .brandPanel {
+    display: none;
+  }
+
+  .formWorkspace {
+    min-height: 100vh;
+    padding: 32px 20px;
+  }
+}

@@ -1,0 +1,104 @@
+================================================================================
+SHELFAWARE — DEMO USER LOGINS & ROLE ACCESS GUIDE
+================================================================================
+Default Password for All Demo Accounts: password123 (or any 6+ character password)
+
+Use the credentials below on the "/login" screen ("Sign in to Workspace") to sign
+in directly into each administrative portal or store role and inspect the modules
+and permissions pertained to that user.
+
+--------------------------------------------------------------------------------
+1. PLATFORM ADMIN (ShelfAware Internal SaaS Control Centre)
+--------------------------------------------------------------------------------
+Full Name:      Tunde Bakare (ShelfAware HQ)
+Email:          tunde.bakare@shelfaware.io
+Password:       password123
+Role:           platform_admin
+Landing Route:  /platform/dashboard
+
+What is pertained to this role:
+- Overview: Platform Dashboard (Total businesses, MRR, active/expired subscriptions,
+  registration trends, subscription distribution, and pending platform actions).
+- Business Management: All Businesses directory, KYB Business Verification review,
+  Assisted Business Onboarding, and Database & Provisioning (Shared vs Dedicated).
+- Subscription Management: Subscription Plans, Active Subscriptions, Payments &
+  Transactions, and Failed Payments recovery.
+- Platform Configuration: Global Role Templates, Global Feature Management kill-switches,
+  and Platform Settings.
+- Support & Monitoring: Support Requests, Immutable Audit Logs, Platform Activity,
+  and System Health.
+
+--------------------------------------------------------------------------------
+2. SUPER BUSINESS ADMIN (Single-Tenant Governance & Configuration)
+--------------------------------------------------------------------------------
+Full Name:      Adebayo Ogunlesi (Business Owner)
+Email:          adebayo@oluwafoodmart.ng
+Password:       password123
+Role:           super_business_admin
+Tenant Scope:   Oluwa & Sons Foodstuff Mart (biz-01)
+Landing Route:  /business-admin/overview
+
+What is pertained to this role:
+- Overview: Business Overview (Store branches, active modules, subscription tier,
+  employee count, and recent tenant administrative logs).
+- Business Configuration: Business Profile (CAC & FIRS TIN), Branch / Store Management,
+  Business Operating Hours & Holiday Closures, Branding & Thermal Receipt Settings
+  (live 58mm/80mm preview), and Currency & VAT Tax Settings.
+- Operations Configuration: Module Management (governed by subscription plan),
+  Product Categories, Units of Measurement (bags, cartons, kg, decimal rules),
+  Inventory & Expiry Settings, Sales / POS Cashier Guardrails, and Notification Settings.
+- Team & Access Control: Employees & Branch Assignments, Interactive Role & Permission
+  Matrix (custom role builder), and Access History audit trail.
+- Account: Subscription & Plan Entitlements, Billing History, and Account Security (2FA).
+
+--------------------------------------------------------------------------------
+3. BUSINESS ADMIN (Day-to-Day Retail Store Operations)
+--------------------------------------------------------------------------------
+Full Name:      Adebayo Ogunlesi (Store Operations Admin)
+Email:          ops@oluwafoodmart.ng
+Password:       password123
+Role:           administrator
+Tenant Scope:   Oluwa & Sons Foodstuff Mart (biz-01)
+Landing Route:  /dashboard
+
+What is pertained to this role:
+- Full access to day-to-day store operations:
+  Dashboard, Point of Sale (POS), Orders, Inventory (Stock Levels, Movements,
+  Batches & Expiry, Stocktake), Products (including Cost Price & Margin), Purchases
+  & Receiving, Customers, Suppliers, Financial & P&L Reports, Team & Users, and
+  Store Settings.
+
+--------------------------------------------------------------------------------
+4. STORE MANAGER (Retail Operations & Inventory Supervisor)
+--------------------------------------------------------------------------------
+Full Name:      Ngozi Eze
+Email:          ngozi@oluwafoodmart.ng
+Password:       password123
+Role:           manager
+Tenant Scope:   Oluwa & Sons Foodstuff Mart (biz-01)
+Landing Route:  /dashboard
+
+What is pertained to this role:
+- Operational supervision across Dashboard, Point of Sale, Orders (including Void /
+  Refund authorization), Products, Inventory adjustments & Stocktake, Purchases &
+  PO Receiving, Suppliers, Customers, and Reports.
+- Restricted from: Managing User Accounts (/users) and Store System Settings (/settings).
+
+--------------------------------------------------------------------------------
+5. POS CASHIER (Front-Counter Checkout & Customer Service)
+--------------------------------------------------------------------------------
+Full Name:      Zainab Bello
+Email:          zainab@oluwafoodmart.ng
+Password:       password123
+Role:           cashier
+Tenant Scope:   Oluwa & Sons Foodstuff Mart (biz-01)
+Landing Route:  /dashboard (with direct POS access at /pos)
+
+What is pertained to this role:
+- Scoped strictly to front-counter checkout and stock lookup:
+  Point of Sale (POS) terminal, Orders lookup, Products catalog (Selling Price only;
+  Cost Price hidden), Inventory availability lookup, and Customers directory.
+- Restricted from: Voiding/Refunding completed sales without supervisor approval,
+  creating/editing Products, manual Stock Adjustments, Purchases, Suppliers,
+  Financial Reports, Team & Users, and Settings.
+================================================================================

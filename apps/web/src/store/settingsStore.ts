@@ -1,49 +1,52 @@
 import { create } from 'zustand';
-import { BusinessSettings } from '../types/domain';
-import { settingsApi } from '../features/settings/services/settingsApi';
-import { applyBrandingToCss } from '../config/branding';
+import { applyBrandingToDocument, DEFAULT_BRANDING_SETTINGS } from '@/app/config/branding';
+import { settingsApi } from '@/features/settings/services/settingsApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
+import type { BusinessSettings } from '@/types/common';
 
 interface SettingsState {
-  settings: BusinessSettings | null;
+  settings: BusinessSettings;
   isLoading: boolean;
   error: string | null;
-
   fetchSettings: () => Promise<void>;
-  updateSettings: (newSettings: Partial<BusinessSettings>) => Promise<boolean>;
+  updateSettings: (partial: Partial<BusinessSettings>) => Promise<boolean>;
+  resetDemoEnvironment: () => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  settings: null,
+  settings: DEFAULT_BRANDING_SETTINGS,
   isLoading: false,
   error: null,
 
   fetchSettings: async () => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
-      const settings = await settingsApi.getSettings();
-      set({ settings, isLoading: false });
-      // Apply initial branding tokens to CSS
-      applyBrandingToCss({
-        brandColor: settings.branding.brandColor,
-        sidebarBg: settings.branding.sidebarBg,
-        borderRadius: settings.branding.borderRadius,
-        fontFamily: settings.branding.fontFamily,
-        tableDensity: settings.branding.tableDensity,
-      });
-    } catch {
-      set({ isLoading: false });
+      const res = await settingsApi.getSettings();
+      applyBrandingToDocument(res.data);
+      set({ settings: res.data, isLoading: false });
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message, isLoading: false });
     }
   },
 
-  updateSettings: async (newSettings) => {
+  updateSettings: async (partial) => {
+    set({ error: null });
     try {
-      const updated = await settingsApi.updateSettings(newSettings);
-      set({ settings: updated });
+      const res = await settingsApi.updateSettings(partial);
+      applyBrandingToDocument(res.data);
+      set({ settings: res.data });
       return true;
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to update settings' });
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
       return false;
     }
   },
-}));
 
+  resetDemoEnvironment: async () => {
+    const res = await settingsApi.resetDemoData();
+    applyBrandingToDocument(res.data);
+    set({ settings: res.data, error: null });
+  },
+}));

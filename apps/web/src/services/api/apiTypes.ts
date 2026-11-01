@@ -1,115 +1,82 @@
-import { ApiResponse, PaginatedResponse } from '../../types/common';
-import { User, Business } from '../../types/domain';
+export type { ApiResponse, NormalizedApiError, PaginatedResponse } from '@/types/api';
 
-// Re-export standard response types
-export type { ApiResponse, PaginatedResponse };
-
-// Auth API types
-export interface LoginRequest {
-  email: string;
-  password: string;
-  rememberMe?: boolean;
-}
-
-export interface RegisterRequest {
-  name: string;
-  email: string;
-  password: string;
-  businessName: string;
-  businessType: string;
-}
-
-export interface AuthResponse {
-  user: User;
-  business: Business;
-  accessToken?: string;
-}
-
-export interface OnboardingRequest {
-  businessName: string;
-  businessType: string;
-  ownerName: string;
-  phone: string;
-  email: string;
-  address: string;
-  currency: string;
-  locale: string;
-}
-
-// Product API types
-export interface ProductFilterParams {
-  search?: string;
-  categoryId?: string;
-  stockStatus?: string;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-  page?: number;
-  limit?: number;
-}
-
-export interface CreateProductPayload {
-  name: string;
-  sku: string;
-  barcode?: string;
-  categoryId: string;
-  categoryName: string;
-  description?: string;
-  unit: string;
-  costPrice: number;
-  sellingPrice: number;
-  currentStock: number;
-  minStockThreshold: number;
-  supplierId?: string;
-  trackExpiry: boolean;
-  expiryDate?: string;
-  batchNumber?: string;
-}
-
-// POS Checkout types
-export interface CheckoutRequestItem {
-  productId: string;
-  quantity: number;
-  unitPrice: number;
-}
-
-export interface CheckoutPayment {
-  method: 'cash' | 'card' | 'bank_transfer';
-  amount: number;
-  reference?: string;
-}
-
-export interface CheckoutRequest {
-  customerId?: string;
-  customerName?: string;
-  items: CheckoutRequestItem[];
-  discount?: {
-    type: 'percentage' | 'fixed';
-    value: number;
-  };
-  payments: CheckoutPayment[];
-  amountReceived: number;
-  changeDue: number;
-  notes?: string;
-  idempotencyKey: string;
-}
-
-// Inventory Adjustment types
-export interface StockAdjustmentPayload {
-  productId: string;
-  quantityChange: number;
-  reason: string;
-  type: 'adjustment_in' | 'adjustment_out' | 'damage' | 'expiry_writeoff' | 'stocktake_adjustment';
-  notes?: string;
-}
-
-// Purchase Order types
-export interface CreatePurchasePayload {
-  supplierId: string;
-  items: Array<{
-    productId: string;
-    orderedQuantity: number;
-    unitCost: number;
-  }>;
-  expectedDate?: string;
-  notes?: string;
-}
+export const API_ENDPOINTS = {
+  AUTH: {
+    REGISTER: '/auth/register',
+    LOGIN: '/auth/login',
+    LOGOUT: '/auth/logout',
+    ME: '/auth/me',
+    VERIFY_EMAIL: '/auth/verify-email',
+    RESEND_VERIFICATION: '/auth/resend-verification',
+    FORGOT_PASSWORD: '/auth/forgot-password',
+    RESET_PASSWORD: '/auth/reset-password',
+    REFRESH: '/auth/refresh',
+    PROFILE: '/auth/profile',
+    CHANGE_PASSWORD: '/auth/change-password',
+  },
+  BUSINESS: {
+    CURRENT: '/businesses/current',
+    CREATE: '/businesses',
+    SETTINGS: '/businesses/current/settings',
+    BRANDING: '/businesses/current/branding',
+  },
+  DASHBOARD: {
+    OVERVIEW: '/dashboard/overview',
+    SALES_TREND: '/dashboard/sales-trend',
+    TOP_PRODUCTS: '/dashboard/top-products',
+    RECENT_SALES: '/dashboard/recent-sales',
+    LOW_STOCK: '/dashboard/low-stock',
+    EXPIRING_STOCK: '/dashboard/expiring-stock',
+  },
+  PRODUCTS: {
+    BASE: '/products',
+    SEARCH: '/products/search',
+    CATEGORIES: '/categories',
+  },
+  POS: {
+    PRODUCTS: '/pos/products',
+    CUSTOMERS: '/pos/customers',
+    CHECKOUT: '/pos/checkout',
+    TRANSACTIONS: '/pos/transactions',
+  },
+  SALES: {
+    BASE: '/sales',
+  },
+  INVENTORY: {
+    BASE: '/inventory',
+    SUMMARY: '/inventory/summary',
+    MOVEMENTS: '/inventory/movements',
+    ADJUSTMENTS: '/inventory/adjustments',
+    STOCKTAKES: '/inventory/stocktakes',
+    BATCHES: '/inventory/batches',
+    EXPIRY_ALERTS: '/inventory/expiry-alerts',
+  },
+  PURCHASES: {
+    BASE: '/purchases',
+  },
+  SUPPLIERS: {
+    BASE: '/suppliers',
+  },
+  CUSTOMERS: {
+    BASE: '/customers',
+  },
+  REPORTS: {
+    SALES: '/reports/sales',
+    PRODUCTS: '/reports/products',
+    PROFIT: '/reports/profit',
+    INVENTORY: '/reports/inventory',
+  },
+  USERS: {
+    BASE: '/users',
+    ROLES: '/roles',
+  },
+  NOTIFICATIONS: {
+    BASE: '/notifications',
+    UNREAD_COUNT: '/notifications/unread-count',
+    READ_ALL: '/notifications/read-all',
+  },
+  SETTINGS: {
+    BASE: '/settings',
+    BRANDING: '/settings/branding',
+  },
+} as const;

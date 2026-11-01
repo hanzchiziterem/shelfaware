@@ -1,73 +1,107 @@
 import { create } from 'zustand';
-import { PurchaseOrder } from '../types/domain';
-import { purchaseApi } from '../features/purchases/services/purchaseApi';
-import { CreatePurchasePayload } from '../services/api/apiTypes';
-import { normalizeApiError } from '../services/api/apiErrors';
+import {
+  purchaseApi,
+  type CreatePurchasePayload,
+} from '@/features/purchases/services/purchaseApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
+import type { PurchaseOrder } from '@/types/common';
 
 interface PurchaseState {
   purchases: PurchaseOrder[];
+  selectedPurchase: PurchaseOrder | null;
   isLoading: boolean;
   error: string | null;
-  selectedPurchase: PurchaseOrder | null;
-  isCreateModalOpen: boolean;
-
-  fetchPurchases: () => Promise<void>;
-  createPurchase: (payload: CreatePurchasePayload) => Promise<boolean>;
-  receivePurchase: (poId: string) => Promise<boolean>;
   setSelectedPurchase: (po: PurchaseOrder | null) => void;
-  setCreateModalOpen: (open: boolean) => void;
+  fetchPurchases: () => Promise<void>;
+  createPurchase: (payload: CreatePurchasePayload) => Promise<PurchaseOrder | null>;
+  updatePurchaseStatus: (
+    purchaseId: string,
+    nextStatus: 'ordered' | 'cancelled'
+  ) => Promise<boolean>;
+  receivePurchase: (
+    purchaseId: string,
+    receivedBy: string,
+    receivedQuantitiesByProductId?: Record<string, number>,
+    discrepancyNotes?: string
+  ) => Promise<boolean>;
 }
 
 export const usePurchaseStore = create<PurchaseState>((set) => ({
   purchases: [],
+  selectedPurchase: null,
   isLoading: false,
   error: null,
-  selectedPurchase: null,
-  isCreateModalOpen: false,
+
+  setSelectedPurchase: (selectedPurchase) => set({ selectedPurchase }),
 
   fetchPurchases: async () => {
+    set({ isLoading: true, error: null });
     try {
-      set({ isLoading: true, error: null });
-      const purchases = await purchaseApi.getPurchases();
-      set({ purchases, isLoading: false });
+      const res = await purchaseApi.getPurchases();
+      set({ purchases: res.data, isLoading: false });
     } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message, isLoading: false });
     }
   },
 
   createPurchase: async (payload) => {
+    set({ error: null });
     try {
-      set({ isLoading: true, error: null });
-      const newPO = await purchaseApi.createPurchase(payload);
+      const res = await purchaseApi.createPurchaseOrder(payload);
       set((state) => ({
-        purchases: [newPO, ...state.purchases],
-        isLoading: false,
-        isCreateModalOpen: false,
+        purchases: [res.data, ...state.purchases],
+        selectedPurchase: res.data,
+      }));
+      return res.data;
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
+      return null;
+    }
+  },
+
+  updatePurchaseStatus: async (purchaseId, nextStatus) => {
+    set({ error: null });
+    try {
+      const res = await purchaseApi.updatePurchaseStatus(purchaseId, nextStatus);
+      set((state) => ({
+        purchases: state.purchases.map((p) => (p.id === purchaseId ? res.data : p)),
+        selectedPurchase:
+          state.selectedPurchase?.id === purchaseId ? res.data : state.selectedPurchase,
       }));
       return true;
     } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
       return false;
     }
   },
 
-  receivePurchase: async (poId) => {
+  receivePurchase: async (
+    purchaseId,
+    receivedBy,
+    receivedQuantitiesByProductId,
+    discrepancyNotes
+  ) => {
+    set({ error: null });
     try {
-      set({ isLoading: true, error: null });
-      const updated = await purchaseApi.receivePurchase(poId);
+      const res = await purchaseApi.receivePurchaseOrder(
+        purchaseId,
+        receivedBy,
+        receivedQuantitiesByProductId,
+        discrepancyNotes
+      );
       set((state) => ({
-        purchases: state.purchases.map((p) => (p.id === poId ? updated : p)),
-        selectedPurchase: state.selectedPurchase?.id === poId ? updated : state.selectedPurchase,
-        isLoading: false,
+        purchases: state.purchases.map((p) => (p.id === purchaseId ? res.data : p)),
+        selectedPurchase:
+          state.selectedPurchase?.id === purchaseId ? res.data : state.selectedPurchase,
       }));
       return true;
     } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
       return false;
     }
   },
-
-  setSelectedPurchase: (po) => set({ selectedPurchase: po }),
-  setCreateModalOpen: (open) => set({ isCreateModalOpen: open }),
 }));
-

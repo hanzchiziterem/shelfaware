@@ -1,0 +1,165 @@
+.pageHeader {
+  margin-bottom: 24px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.inputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input,
+.select {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: 13.5px;
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.togglePwBtn {
+  position: absolute;
+  right: 10px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  padding: 2px 6px;
+}
+
+.errorText {
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.bannerError {
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: 12.5px;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+}
+
+.bannerSuccess {
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+  font-size: 12.5px;
+}
+
+.rowBetween {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+}
+
+.checkboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.link {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.footerSwitch {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.quickFillBar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.quickChip {
+  font-size: 11.5px;
+  padding: 4px 9px;
+  border-radius: var(--radius-control);
+  background-color: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.quickChip:hover {
+  background-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.stepBar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.stepSegment {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--color-border);
+}
+
+.stepSegmentActive {
+  background-color: var(--color-primary);
+}

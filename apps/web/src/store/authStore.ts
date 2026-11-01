@@ -1,95 +1,147 @@
 import { create } from 'zustand';
-import { User, Business, Role } from '../types/domain';
-import { authApi } from '../features/auth/services/authApi';
-import { LoginRequest, RegisterRequest, OnboardingRequest } from '../services/api/apiTypes';
-import { normalizeApiError } from '../services/api/apiErrors';
+import {
+  authApi,
+  type LoginPayload,
+  type OnboardingPayload,
+  type RegisterPayload,
+} from '@/features/auth/services/authApi';
+import { INITIAL_USERS } from '@/mocks/inventory';
+import { normalizeApiError } from '@/services/api/apiErrors';
+import { registerUnauthorizedHandler, setInMemoryAccessToken } from '@/services/api/interceptors';
+import type { User, UserRole } from '@/types/common';
 
 export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated';
 
 interface AuthState {
   user: User | null;
-  business: Business | null;
   status: AuthStatus;
-  error: string | null;
   isInitialized: boolean;
-
-  init: () => Promise<void>;
-  login: (payload: LoginRequest) => Promise<boolean>;
-  register: (payload: RegisterRequest) => Promise<boolean>;
-  logout: () => Promise<void>;
-  completeOnboarding: (payload: OnboardingRequest) => Promise<boolean>;
-  switchRoleForDemo: (role: Role) => void;
+  pendingVerificationEmail: string | null;
+  needsOnboarding: boolean;
+  error: string | null;
+  initializeSession: () => void;
+  login: (payload: LoginPayload) => Promise<boolean>;
+  register: (payload: RegisterPayload) => Promise<boolean>;
+  verifyEmail: (code: string) => Promise<boolean>;
+  completeOnboarding: (payload: OnboardingPayload) => Promise<boolean>;
+  logout: () => void;
+  switchRoleForDemo: (role: UserRole) => Promise<void>;
   clearError: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
-  user: null,
-  business: null,
-  status: 'idle',
-  error: null,
-  isInitialized: false,
+export const useAuthStore = create<AuthState>((set) => {
+  registerUnauthorizedHandler(() => {
+    setInMemoryAccessToken(null);
+    set({
+      user: null,
+      status: 'unauthenticated',
+      error: 'Session expired. Please sign in again.',
+    });
+  });
 
-  init: async () => {
-    try {
-      set({ status: 'loading' });
-      const { user, business } = await authApi.getMe();
-      set({ user, business, status: 'authenticated', isInitialized: true, error: null });
-    } catch {
-      set({ user: null, business: null, status: 'unauthenticated', isInitialized: true });
-    }
-  },
+  return {
+    user: INITIAL_USERS[0],
+    status: 'authenticated',
+    isInitialized: true,
+    pendingVerificationEmail: null,
+    needsOnboarding: false,
+    error: null,
 
-  login: async (payload: LoginRequest) => {
-    try {
+    initializeSession: () => {
+      set((state) => ({
+        isInitialized: true,
+        status: state.user ? 'authenticated' : 'unauthenticated',
+      }));
+    },
+
+    login: async (payload) => {
       set({ status: 'loading', error: null });
-      const res = await authApi.login(payload);
-      set({ user: res.user, business: res.business, status: 'authenticated', error: null });
-      return true;
-    } catch (err) {
-      const normalized = normalizeApiError(err);
-      set({ error: normalized.message, status: 'unauthenticated' });
-      return false;
-    }
-  },
+      try {
+        const res = await authApi.login(payload);
+        setInMemoryAccessToken(res.data.accessToken);
+        set({
+          user: res.data.user,
+          status: 'authenticated',
+          needsOnboarding: Boolean(res.data.needsOnboarding),
+          error: null,
+        });
+        return true;
+      } catch (err) {
+        const normalized = normalizeApiError(err);
+        set({
+          status: 'unauthenticated',
+          error: normalized.message,
+        });
+        return false;
+      }
+    },
 
-  register: async (payload: RegisterRequest) => {
-    try {
+    register: async (payload) => {
       set({ status: 'loading', error: null });
-      const res = await authApi.register(payload);
-      set({ user: res.user, business: res.business, status: 'authenticated', error: null });
-      return true;
-    } catch (err) {
-      const normalized = normalizeApiError(err);
-      set({ error: normalized.message, status: 'unauthenticated' });
-      return false;
-    }
-  },
+      try {
+        const res = await authApi.register(payload);
+        setInMemoryAccessToken(res.data.accessToken);
+        set({
+          user: res.data.user,
+          status: 'authenticated',
+          pendingVerificationEmail: res.data.user.email,
+          needsOnboarding: true,
+          error: null,
+        });
+        return true;
+      } catch (err) {
+        const normalized = normalizeApiError(err);
+        set({
+          status: 'unauthenticated',
+          error: normalized.message,
+        });
+        return false;
+      }
+    },
 
-  logout: async () => {
-    await authApi.logout();
-    set({ user: null, business: null, status: 'unauthenticated', error: null });
-  },
+    verifyEmail: async (code) => {
+      set({ error: null });
+      try {
+        await authApi.verifyEmail(code);
+        set({ pendingVerificationEmail: null });
+        return true;
+      } catch (err) {
+        const normalized = normalizeApiError(err);
+        set({ error: normalized.message });
+        return false;
+      }
+    },
 
-  completeOnboarding: async (payload: OnboardingRequest) => {
-    try {
-      set({ status: 'loading', error: null });
-      const updatedBiz = await authApi.completeOnboarding(payload);
-      set({ business: updatedBiz, status: 'authenticated' });
-      return true;
-    } catch (err) {
-      const normalized = normalizeApiError(err);
-      set({ error: normalized.message });
-      return false;
-    }
-  },
+    completeOnboarding: async (payload) => {
+      set({ error: null });
+      try {
+        await authApi.completeOnboarding(payload);
+        set({ needsOnboarding: false });
+        return true;
+      } catch (err) {
+        const normalized = normalizeApiError(err);
+        set({ error: normalized.message });
+        return false;
+      }
+    },
 
-  switchRoleForDemo: (role: Role) => {
-    const currentUser = get().user;
-    if (currentUser) {
-      set({ user: { ...currentUser, role } });
-    }
-  },
+    logout: () => {
+      setInMemoryAccessToken(null);
+      set({
+        user: null,
+        status: 'unauthenticated',
+        error: null,
+      });
+    },
 
-  clearError: () => set({ error: null }),
-}));
+    switchRoleForDemo: async (role) => {
+      const res = await authApi.switchDemoRole(role);
+      set({
+        user: res.data,
+        status: 'authenticated',
+      });
+    },
 
+    clearError: () => set({ error: null }),
+  };
+});

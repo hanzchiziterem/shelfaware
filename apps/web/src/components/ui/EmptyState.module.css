@@ -1,0 +1,25 @@
+.emptyBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background-color: var(--color-surface);
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 6px;
+}
+
+.description {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  max-width: 400px;
+  margin-bottom: 16px;
+}

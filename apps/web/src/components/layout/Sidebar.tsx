@@ -1,305 +1,425 @@
-import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useEffect, useState, type ReactNode } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Sparkles,
-  LayoutDashboard,
-  ReceiptText,
-  Boxes,
-  CreditCard,
-  Users,
-  Bell,
-  HelpCircle,
-  Settings,
-  Search,
-  MoreHorizontal,
-  X,
-  Package,
-  Truck,
-  Building2,
-  ClockAlert,
+  Activity,
+  AlertTriangle,
   BarChart3,
+  Bell,
+  Boxes,
+  Building2,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  Database,
+  FileSpreadsheet,
+  FileText,
+  FolderKanban,
+  HelpCircle,
+  History,
+  KeyRound,
+  Layers,
+  LayoutDashboard,
+  LogOut,
+  Package,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Receipt,
+  Scale,
+  Search,
+  Server,
+  Settings,
+  ShieldCheck,
+  ShoppingBag,
+  Sliders,
+  Sparkles,
+  Store,
+  Truck,
   UserCheck,
+  UserCog,
+  Users,
+  Wallet,
 } from 'lucide-react';
-import { useAuthStore } from '../../store/authStore';
-import { useUiStore } from '../../store/uiStore';
-import { useSettingsStore } from '../../store/settingsStore';
-import { useNotificationStore } from '../../store/notificationStore';
-import { hasPermission } from '../../config/permissions';
-import { PATHS } from '../../router/paths';
-import { cn } from '../../utils/cn';
+import {
+  NAVIGATION_ITEMS,
+  PLATFORM_ADMIN_NAV_GROUPS,
+  SUPER_BUSINESS_ADMIN_NAV_GROUPS,
+} from '@/app/config/navigation';
+import { hasPermission } from '@/app/config/permissions';
+import { PATHS } from '@/app/router/paths';
+import { BrandLogo } from '@/components/ui/BrandLogo';
+import { Dialog } from '@/components/ui/Dialog';
+import { useAuthStore } from '@/store/authStore';
+import { useNotificationStore } from '@/store/notificationStore';
+import { useUiStore } from '@/store/uiStore';
+import type { UserRole } from '@/types/common';
+import styles from './Sidebar.module.css';
 
-export const Sidebar: React.FC = () => {
+const NAV_ICON_MAP: Record<string, ReactNode> = {
+  // Store Operations (Business Admin)
+  dashboard: <LayoutDashboard size={16} strokeWidth={1.8} />,
+  pos: <ShoppingBag size={16} strokeWidth={1.8} />,
+  orders: <Receipt size={16} strokeWidth={1.8} />,
+  inventory: <Boxes size={16} strokeWidth={1.8} />,
+  products: <Package size={16} strokeWidth={1.8} />,
+  purchases: <Truck size={16} strokeWidth={1.8} />,
+  customers: <Users size={16} strokeWidth={1.8} />,
+  suppliers: <Building2 size={16} strokeWidth={1.8} />,
+  reports: <BarChart3 size={16} strokeWidth={1.8} />,
+  users: <UserCog size={16} strokeWidth={1.8} />,
+  notifications: <Bell size={16} strokeWidth={1.8} />,
+  help: <HelpCircle size={16} strokeWidth={1.8} />,
+  settings: <Settings size={16} strokeWidth={1.8} />,
+
+  // Platform Admin
+  'plat-dashboard': <LayoutDashboard size={16} strokeWidth={1.8} />,
+  'plat-businesses': <Building2 size={16} strokeWidth={1.8} />,
+  'plat-verification': <CheckCircle2 size={16} strokeWidth={1.8} />,
+  'plat-onboarding': <UserCheck size={16} strokeWidth={1.8} />,
+  'plat-provisioning': <Database size={16} strokeWidth={1.8} />,
+  'plat-plans': <Layers size={16} strokeWidth={1.8} />,
+  'plat-subscriptions': <CreditCard size={16} strokeWidth={1.8} />,
+  'plat-payments': <Wallet size={16} strokeWidth={1.8} />,
+  'plat-failed-payments': <AlertTriangle size={16} strokeWidth={1.8} />,
+  'plat-role-templates': <KeyRound size={16} strokeWidth={1.8} />,
+  'plat-features': <Sparkles size={16} strokeWidth={1.8} />,
+  'plat-settings': <Settings size={16} strokeWidth={1.8} />,
+  'plat-support': <HelpCircle size={16} strokeWidth={1.8} />,
+  'plat-audit-logs': <FileText size={16} strokeWidth={1.8} />,
+  'plat-activity': <Activity size={16} strokeWidth={1.8} />,
+  'plat-system-health': <Server size={16} strokeWidth={1.8} />,
+
+  // Super Business Admin
+  'sba-overview': <LayoutDashboard size={16} strokeWidth={1.8} />,
+  'sba-profile': <Building2 size={16} strokeWidth={1.8} />,
+  'sba-branches': <Store size={16} strokeWidth={1.8} />,
+  'sba-hours': <Clock size={16} strokeWidth={1.8} />,
+  'sba-receipt-settings': <Receipt size={16} strokeWidth={1.8} />,
+  'sba-currency-tax': <Wallet size={16} strokeWidth={1.8} />,
+  'sba-modules': <Layers size={16} strokeWidth={1.8} />,
+  'sba-categories': <FolderKanban size={16} strokeWidth={1.8} />,
+  'sba-units': <Scale size={16} strokeWidth={1.8} />,
+  'sba-inventory-settings': <Boxes size={16} strokeWidth={1.8} />,
+  'sba-sales-settings': <Sliders size={16} strokeWidth={1.8} />,
+  'sba-notification-settings': <Bell size={16} strokeWidth={1.8} />,
+  'sba-employees': <Users size={16} strokeWidth={1.8} />,
+  'sba-roles': <ShieldCheck size={16} strokeWidth={1.8} />,
+  'sba-access-history': <History size={16} strokeWidth={1.8} />,
+  'sba-subscription': <CreditCard size={16} strokeWidth={1.8} />,
+  'sba-billing-history': <FileSpreadsheet size={16} strokeWidth={1.8} />,
+  'sba-account-settings': <Settings size={16} strokeWidth={1.8} />,
+};
+
+function formatShortRoleLabel(role?: UserRole): string {
+  switch (role) {
+    case 'administrator':
+    case 'super_business_admin':
+      return 'Admin';
+    case 'platform_admin':
+      return 'Platform Admin';
+    case 'manager':
+      return 'Manager';
+    case 'cashier':
+      return 'Cashier';
+    default:
+      return 'Admin';
+  }
+}
+
+export function Sidebar() {
+  const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuthStore();
-  const { isSidebarCollapsed, isMobileSidebarOpen, setMobileSidebarOpen } = useUiStore();
-  const { settings } = useSettingsStore();
-  const { getUnreadCount } = useNotificationStore();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
 
-  const brandName = settings?.branding.productName || 'Mate';
-  const unreadCount = getUnreadCount();
+  const notifications = useNotificationStore((s) => s.notifications);
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
-  const handleNavClick = () => {
-    if (isMobileSidebarOpen) setMobileSidebarOpen(false);
-  };
+  const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const mobileDrawerOpen = useUiStore((s) => s.mobileDrawerOpen);
+  const setMobileDrawerOpen = useUiStore((s) => s.setMobileDrawerOpen);
+  const quickSearchOpen = useUiStore((s) => s.quickSearchOpen);
+  const setQuickSearchOpen = useUiStore((s) => s.setQuickSearchOpen);
 
-  // Primary navigation group (matching image 1: Dashboard, Orders, Inventory, Payments, Customers)
-  const primaryNavItems = [
-    {
-      label: 'Dashboard',
-      path: PATHS.DASHBOARD,
-      icon: LayoutDashboard,
-      exact: true,
-    },
-    {
-      label: 'Orders',
-      path: PATHS.SALES,
-      icon: ReceiptText,
-      requiredPermission: 'sales:view' as const,
-    },
-    {
-      label: 'Inventory',
-      path: PATHS.INVENTORY,
-      icon: Boxes,
-      requiredPermission: 'inventory:view' as const,
-    },
-    {
-      label: 'POS & Payments',
-      path: PATHS.POS,
-      icon: CreditCard,
-      requiredPermission: 'pos:operate' as const,
-    },
-    {
-      label: 'Products',
-      path: PATHS.PRODUCTS,
-      icon: Package,
-      requiredPermission: 'products:view' as const,
-    },
-    {
-      label: 'Purchases',
-      path: PATHS.PURCHASES,
-      icon: Truck,
-      requiredPermission: 'purchases:view' as const,
-    },
-    {
-      label: 'Suppliers',
-      path: PATHS.SUPPLIERS,
-      icon: Building2,
-    },
-    {
-      label: 'Customers',
-      path: PATHS.CUSTOMERS,
-      icon: Users,
-    },
-    {
-      label: 'Perishables',
-      path: PATHS.EXPIRY,
-      icon: ClockAlert,
-    },
-    {
-      label: 'Reports',
-      path: PATHS.REPORTS,
-      icon: BarChart3,
-      requiredPermission: 'reports:view' as const,
-    },
-    {
-      label: 'Team & Users',
-      path: PATHS.USERS,
-      icon: UserCheck,
-      requiredPermission: 'users:manage' as const,
-    },
-  ];
+  const [quickFilter, setQuickFilter] = useState('');
 
-  // Secondary navigation group (matching image 1: Notifications, Help & support, Settings)
-  const secondaryNavItems = [
-    {
-      label: 'Notifications',
-      path: PATHS.NOTIFICATIONS,
-      icon: Bell,
-      badge: unreadCount > 0 ? unreadCount : 7,
-    },
-    {
-      label: 'Help & support',
-      path: PATHS.SUPPORT,
-      icon: HelpCircle,
-    },
-    {
-      label: 'Settings',
-      path: PATHS.SETTINGS,
-      icon: Settings,
-    },
-  ];
+  const isPlatformPortal = location.pathname.startsWith('/platform');
+  const isSuperBusinessPortal = location.pathname.startsWith('/business-admin');
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setQuickSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [setQuickSearchOpen]);
+
+  const permittedItems = NAVIGATION_ITEMS.filter((item) => {
+    if (!item.requiredPermission) return true;
+    return hasPermission(user?.role, item.requiredPermission);
+  });
+
+  const primaryItems = permittedItems.filter((i) => i.section === 'primary');
+  const operationsItems = permittedItems.filter((i) => i.section === 'operations');
+  const systemItems = permittedItems.filter((i) => i.section === 'system');
+
+  const quickJumpList = isPlatformPortal
+    ? PLATFORM_ADMIN_NAV_GROUPS.flatMap((g) => g.items)
+    : isSuperBusinessPortal
+      ? SUPER_BUSINESS_ADMIN_NAV_GROUPS.flatMap((g) => g.items)
+      : permittedItems.map((i) => ({ id: i.id, label: i.label, path: i.path }));
+
+  const renderNavIcon = (id: string) =>
+    NAV_ICON_MAP[id] || <LayoutDashboard size={16} strokeWidth={1.8} />;
 
   return (
     <>
-      {/* Mobile Backdrop */}
-      {isMobileSidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-xs lg:hidden"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      )}
-
-      {/* Main Sidebar */}
       <aside
-        className={cn(
-          'fixed top-0 bottom-0 left-0 z-40 flex flex-col bg-[#070B14] border-r border-[#151D2D] text-slate-300 transition-all duration-300 select-none font-sans',
-          isSidebarCollapsed ? 'w-16' : 'w-56',
-          isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        )}
+        className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : ''} ${
+          mobileDrawerOpen ? styles.sidebarMobileOpen : ''
+        }`.trim()}
+        aria-label="Primary Navigation"
       >
-        {/* Brand Header */}
-        <div className="h-14 flex items-center justify-between px-4 border-b border-[#151D2D]">
-          <div className="flex items-center gap-2 overflow-hidden">
-            {/* Asterisk / Star icon matching image 1 */}
-            <div className="w-6 h-6 flex items-center justify-center text-slate-100 shrink-0">
-              <Sparkles className="w-5 h-5 text-slate-100" />
-            </div>
-            {!isSidebarCollapsed && (
-              <span className="text-sm font-bold text-white tracking-wide">
-                {brandName}
-              </span>
-            )}
-          </div>
-
-          {/* Mobile close */}
+        <div className={styles.topHeader}>
+          <BrandLogo
+            variant="sidebar"
+            collapsed={sidebarCollapsed}
+            showStoreName={!isPlatformPortal}
+          />
           <button
-            onClick={() => setMobileSidebarOpen(false)}
-            className="lg:hidden p-1 text-slate-400 hover:text-white"
+            type="button"
+            className={styles.collapseButton}
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <X className="w-4 h-4" />
+            {sidebarCollapsed ? (
+              <PanelLeftOpen size={17} strokeWidth={1.8} />
+            ) : (
+              <PanelLeftClose size={17} strokeWidth={1.8} />
+            )}
           </button>
         </div>
 
-        {/* Quick Search inside sidebar (matching image 1) */}
-        {!isSidebarCollapsed && (
-          <div className="px-3 pt-3.5 pb-2">
-            <div className="flex items-center justify-between bg-[#111827] border border-[#1F293D] rounded-md px-2.5 py-1.5 text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <Search className="w-3.5 h-3.5 text-slate-500" />
-                <span className="text-[11px] text-slate-500">Search</span>
-              </div>
-              <span className="text-[10px] text-slate-500 font-mono">⌘F</span>
-            </div>
-          </div>
-        )}
-
-        {/* Primary Nav List */}
-        <div className="flex-1 overflow-y-auto px-2.5 py-2 space-y-1 scrollbar-none">
-          {primaryNavItems.map((item) => {
-            if (item.requiredPermission && !hasPermission(user?.role, item.requiredPermission)) {
-              return null;
-            }
-
-            const Icon = item.icon;
-            const isActive = item.exact
-              ? location.pathname === item.path
-              : location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
-
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                onClick={handleNavClick}
-                title={isSidebarCollapsed ? item.label : undefined}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium transition-colors group relative',
-                  isActive
-                    ? 'bg-[#192234] text-white shadow-xs font-semibold'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#121A2A]'
-                )}
-              >
-                <Icon
-                  className={cn(
-                    'w-4 h-4 shrink-0',
-                    isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-300'
-                  )}
-                />
-                {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
-              </NavLink>
-            );
-          })}
-
-          {/* Separator before secondary nav */}
-          <div className="my-3 border-t border-[#172033]" />
-
-          {/* Secondary Nav List (Notifications, Help, Settings) */}
-          {secondaryNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname.startsWith(item.path);
-
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                onClick={handleNavClick}
-                title={isSidebarCollapsed ? item.label : undefined}
-                className={cn(
-                  'flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors group relative',
-                  isActive
-                    ? 'bg-[#192234] text-white shadow-xs font-semibold'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-[#121A2A]'
-                )}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <Icon
-                    className={cn(
-                      'w-4 h-4 shrink-0',
-                      isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-300'
-                    )}
-                  />
-                  {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
-                </div>
-
-                {/* Circular red notification badge matching image 1 */}
-                {item.badge !== undefined && (
-                  <span
-                    className={cn(
-                      'w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0',
-                      isSidebarCollapsed && 'absolute top-1.5 right-1.5'
-                    )}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </NavLink>
-            );
-          })}
+        <div className={styles.searchWrapper}>
+          <button
+            type="button"
+            className={styles.searchTrigger}
+            onClick={() => setQuickSearchOpen(true)}
+            title="Quick jump (⌘K)"
+            aria-label="Quick jump (⌘K)"
+          >
+            <span className={styles.searchLabelGroup}>
+              <Search size={14} strokeWidth={1.8} />
+              {!sidebarCollapsed && <span>Quick jump</span>}
+            </span>
+            {!sidebarCollapsed && <span className={styles.shortcutHint}>⌘K</span>}
+          </button>
         </div>
 
-        {/* User Card at bottom matching image 1 (Avatar + Name + '...') */}
-        <div className="p-3 border-t border-[#151D2D]">
-          <div className="flex items-center justify-between p-1 rounded-md hover:bg-[#121A2A] transition-colors cursor-pointer">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center text-xs font-semibold text-white shrink-0 overflow-hidden ring-1 ring-slate-500">
-                {user?.name?.charAt(0) || 'O'}
+        <nav className={styles.navScroll}>
+          {isPlatformPortal ? (
+            PLATFORM_ADMIN_NAV_GROUPS.map((group) => (
+              <div key={group.groupTitle} className={styles.navGroup}>
+                {!sidebarCollapsed && (
+                  <div className={styles.navGroupHeading}>{group.groupTitle}</div>
+                )}
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.id}
+                    to={item.path}
+                    onClick={() => setMobileDrawerOpen(false)}
+                    className={({ isActive }) =>
+                      `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`.trim()
+                    }
+                    title={sidebarCollapsed ? item.label : undefined}
+                  >
+                    <span className={styles.navLabelWrap}>
+                      <span className={styles.navIcon} aria-hidden="true">
+                        {renderNavIcon(item.id)}
+                      </span>
+                      {!sidebarCollapsed && <span>{item.label}</span>}
+                    </span>
+                  </NavLink>
+                ))}
               </div>
-              {!isSidebarCollapsed && (
-                <div className="truncate">
-                  <p className="text-xs font-semibold text-slate-200 truncate">
-                    {user?.name || 'Olivia Williams'}
-                  </p>
-                  <p className="text-[10px] text-slate-500 capitalize truncate">
-                    {user?.role || 'Store Admin'}
-                  </p>
+            ))
+          ) : isSuperBusinessPortal ? (
+            SUPER_BUSINESS_ADMIN_NAV_GROUPS.map((group) => (
+              <div key={group.groupTitle} className={styles.navGroup}>
+                {!sidebarCollapsed && (
+                  <div className={styles.navGroupHeading}>{group.groupTitle}</div>
+                )}
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.id}
+                    to={item.path}
+                    onClick={() => setMobileDrawerOpen(false)}
+                    className={({ isActive }) =>
+                      `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`.trim()
+                    }
+                    title={sidebarCollapsed ? item.label : undefined}
+                  >
+                    <span className={styles.navLabelWrap}>
+                      <span className={styles.navIcon} aria-hidden="true">
+                        {renderNavIcon(item.id)}
+                      </span>
+                      {!sidebarCollapsed && <span>{item.label}</span>}
+                    </span>
+                  </NavLink>
+                ))}
+              </div>
+            ))
+          ) : (
+            <>
+              <div className={styles.navGroup}>
+                {primaryItems.map((item) => (
+                  <NavLink
+                    key={item.id}
+                    to={item.path}
+                    onClick={() => setMobileDrawerOpen(false)}
+                    className={({ isActive }) =>
+                      `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`.trim()
+                    }
+                    title={sidebarCollapsed ? item.label : undefined}
+                  >
+                    <span className={styles.navLabelWrap}>
+                      <span className={styles.navIcon} aria-hidden="true">
+                        {renderNavIcon(item.id)}
+                      </span>
+                      {!sidebarCollapsed && <span>{item.label}</span>}
+                    </span>
+                  </NavLink>
+                ))}
+              </div>
+
+              {operationsItems.length > 0 && (
+                <>
+                  <div className={styles.groupDivider} />
+                  <div className={styles.navGroup}>
+                    {operationsItems.map((item) => (
+                      <NavLink
+                        key={item.id}
+                        to={item.path}
+                        onClick={() => setMobileDrawerOpen(false)}
+                        className={({ isActive }) =>
+                          `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`.trim()
+                        }
+                        title={sidebarCollapsed ? item.label : undefined}
+                      >
+                        <span className={styles.navLabelWrap}>
+                          <span className={styles.navIcon} aria-hidden="true">
+                            {renderNavIcon(item.id)}
+                          </span>
+                          {!sidebarCollapsed && <span>{item.label}</span>}
+                        </span>
+                      </NavLink>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <div className={styles.groupDivider} />
+
+              <div className={styles.navGroup}>
+                {systemItems.map((item) => (
+                  <NavLink
+                    key={item.id}
+                    to={item.path}
+                    onClick={() => setMobileDrawerOpen(false)}
+                    className={({ isActive }) =>
+                      `${styles.navLink} ${isActive ? styles.navLinkActive : ''}`.trim()
+                    }
+                    title={sidebarCollapsed ? item.label : undefined}
+                  >
+                    <span className={styles.navLabelWrap}>
+                      <span className={styles.navIcon} aria-hidden="true">
+                        {renderNavIcon(item.id)}
+                      </span>
+                      {!sidebarCollapsed && <span>{item.label}</span>}
+                    </span>
+                    {!sidebarCollapsed &&
+                      item.badgeType === 'notifications' &&
+                      unreadCount > 0 && (
+                        <span className={styles.unreadBadge}>{unreadCount}</span>
+                      )}
+                  </NavLink>
+                ))}
+              </div>
+            </>
+          )}
+        </nav>
+
+        <div className={styles.footerProfile}>
+          <div className={styles.userRow}>
+            <div className={styles.userIdentity}>
+              <span className={styles.avatarCircle} title={user?.fullName || 'Store Staff'}>
+                {user?.avatarInitials || 'AO'}
+              </span>
+              {!sidebarCollapsed && (
+                <div className={styles.userMeta}>
+                  <div className={styles.userName}>
+                    {(user?.fullName || 'Store Staff').replace(' (Store Ops)', '')}
+                  </div>
+                  <div className={styles.userRole}>{formatShortRoleLabel(user?.role)}</div>
                 </div>
               )}
             </div>
-
-            {!isSidebarCollapsed && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (window.confirm('Sign out?')) logout();
-                }}
-                className="text-slate-500 hover:text-slate-300 p-1"
-                title="Options / Sign Out"
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              className={styles.logoutBtn}
+              onClick={() => {
+                logout();
+                navigate(PATHS.AUTH.LOGIN);
+              }}
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <LogOut size={16} strokeWidth={1.8} />
+            </button>
           </div>
         </div>
       </aside>
+
+      <Dialog
+        open={quickSearchOpen}
+        onClose={() => setQuickSearchOpen(false)}
+        title="ShelfAware Quick Navigation"
+        size="sm"
+      >
+        <input
+          type="search"
+          className={styles.quickInput}
+          placeholder="Jump to page..."
+          value={quickFilter}
+          onChange={(e) => setQuickFilter(e.target.value)}
+          autoFocus
+        />
+        <div className={styles.quickModalList}>
+          {quickJumpList
+            .filter((i) => i.label.toLowerCase().includes(quickFilter.toLowerCase()))
+            .map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={styles.quickModalItem}
+                onClick={() => {
+                  setQuickSearchOpen(false);
+                  setQuickFilter('');
+                  navigate(item.path);
+                }}
+              >
+                <span>{item.label}</span>
+                <span style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}>
+                  {item.path}
+                </span>
+              </button>
+            ))}
+        </div>
+      </Dialog>
     </>
   );
-};
+}

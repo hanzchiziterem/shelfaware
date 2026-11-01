@@ -1,81 +1,67 @@
-import React, { useEffect } from 'react';
-import { X } from 'lucide-react';
-import { cn } from '../../utils/cn';
+import { type ReactNode, useEffect } from 'react';
+import styles from './Dialog.module.css';
 
-export interface DialogProps {
-  isOpen: boolean;
+interface DialogProps {
+  open: boolean;
   onClose: () => void;
-  title?: string;
-  description?: string;
-  children: React.ReactNode;
-  className?: string;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  title: string;
+  size?: 'sm' | 'md' | 'lg';
+  darkHeader?: boolean;
+  children: ReactNode;
+  footer?: ReactNode;
 }
 
-export const Dialog: React.FC<DialogProps> = ({
-  isOpen,
+export function Dialog({
+  open,
   onClose,
   title,
-  description,
+  size = 'md',
+  darkHeader = false,
   children,
-  className,
-  maxWidth = 'md',
-}) => {
+  footer,
+}: DialogProps) {
   useEffect(() => {
+    if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
-  const maxWidths = {
-    sm: 'max-w-sm',
-    md: 'max-w-md',
-    lg: 'max-w-lg',
-    xl: 'max-w-xl',
-    '2xl': 'max-w-2xl',
-  };
+  const sizeClass = {
+    sm: styles.sizeSm,
+    md: styles.sizeMd,
+    lg: styles.sizeLg,
+  }[size];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
-
-      {/* Dialog box */}
-      <div
-        className={cn(
-          'relative w-full bg-white rounded-[var(--radius-modal)] shadow-floating border border-slate-200 p-6 z-10 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150',
-          maxWidths[maxWidth],
-          className
-        )}
-      >
-        <div className="flex items-start justify-between pb-3 border-b border-slate-100 mb-4">
-          <div>
-            {title && <h3 className="text-base font-semibold text-slate-900">{title}</h3>}
-            {description && <p className="text-xs text-slate-500 mt-0.5">{description}</p>}
-          </div>
+    <div
+      className={styles.backdrop}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div className={`${styles.dialog} ${sizeClass}`}>
+        <div className={`${styles.header} ${darkHeader ? styles.headerDark : ''}`}>
+          <h2 className={styles.title}>{title}</h2>
           <button
+            type="button"
+            className={styles.closeBtn}
             onClick={onClose}
-            className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            aria-label="Close dialog"
           >
-            <X className="w-4 h-4" />
+            ✕
           </button>
         </div>
-
-        <div>{children}</div>
+        <div className={styles.body}>{children}</div>
+        {footer && <div className={styles.footer}>{footer}</div>}
       </div>
     </div>
   );
-};
+}

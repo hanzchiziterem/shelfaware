@@ -1,49 +1,36 @@
 import { create } from 'zustand';
-import { dashboardApi } from '../features/dashboard/services/dashboardApi';
-import { DashboardOverview } from '../mocks/dashboard';
+import { dashboardApi, type DashboardMetrics } from '@/features/dashboard/services/dashboardApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
 
 interface DashboardState {
-  overview: DashboardOverview | null;
-  salesTrend: Array<{ time: string; sales: number; transactions: number }>;
-  weeklySales: Array<{ day: string; revenue: number; profit: number }>;
-  paymentBreakdown: Array<{ method: string; value: number; percentage: number; color: string }>;
-  topProducts: Array<{ id: string; name: string; category: string; soldCount: number; revenue: number; profit: number }>;
+  metrics: DashboardMetrics | null;
+  period: 'today' | '7d' | '30d';
   isLoading: boolean;
   error: string | null;
-
-  fetchDashboardData: () => Promise<void>;
+  setPeriod: (period: 'today' | '7d' | '30d') => void;
+  fetchDashboard: (period?: 'today' | '7d' | '30d') => Promise<void>;
 }
 
-export const useDashboardStore = create<DashboardState>((set) => ({
-  overview: null,
-  salesTrend: [],
-  weeklySales: [],
-  paymentBreakdown: [],
-  topProducts: [],
+export const useDashboardStore = create<DashboardState>((set, get) => ({
+  metrics: null,
+  period: '30d',
   isLoading: false,
   error: null,
 
-  fetchDashboardData: async () => {
+  setPeriod: (period) => {
+    set({ period });
+    void get().fetchDashboard(period);
+  },
+
+  fetchDashboard: async (periodOverride) => {
+    const activePeriod = periodOverride ?? get().period;
+    set({ isLoading: true, error: null });
     try {
-      set({ isLoading: true, error: null });
-      const [overview, salesTrend, weeklySales, paymentBreakdown, topProducts] = await Promise.all([
-        dashboardApi.getOverview(),
-        dashboardApi.getSalesTrend(),
-        dashboardApi.getWeeklySales(),
-        dashboardApi.getPaymentBreakdown(),
-        dashboardApi.getTopProducts(),
-      ]);
-      set({
-        overview,
-        salesTrend,
-        weeklySales,
-        paymentBreakdown,
-        topProducts,
-        isLoading: false,
-      });
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to load dashboard', isLoading: false });
+      const res = await dashboardApi.getDashboardData(activePeriod);
+      set({ metrics: res.data, isLoading: false });
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message, isLoading: false });
     }
   },
 }));
-

@@ -5,6 +5,7 @@ on:
     branches: [master, development]
   pull_request:
     branches: [master, development]
+  workflow_dispatch:
 
 jobs:
   validate:
@@ -40,7 +41,7 @@ jobs:
   release:
     name: Semantic Release
     needs: validate
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/development')
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/development')
     runs-on: ubuntu-latest
     permissions:
       contents: write

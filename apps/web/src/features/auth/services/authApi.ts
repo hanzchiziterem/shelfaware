@@ -1,106 +1,179 @@
-import { apiClient, setAccessToken } from '../../../services/api/axiosInstance';
-import { API_CONFIG } from '../../../services/api/apiConfig';
-import { LoginRequest, RegisterRequest, AuthResponse, OnboardingRequest } from '../../../services/api/apiTypes';
-import { User, Business } from '../../../types/domain';
+import { INITIAL_USERS } from '@/mocks/inventory';
+import { loadMockDb, saveMockDb } from '@/mocks/mockDb';
+import { API_CONFIG } from '@/services/api/apiConfig';
+import { API_ENDPOINTS, type ApiResponse } from '@/services/api/apiTypes';
+import { axiosInstance } from '@/services/api/axiosInstance';
+import type { User, UserRole } from '@/types/common';
+import { getInitials } from '@/utils/formatters';
 
-const MOCK_ADMIN_USER: User = {
-  id: 'usr-001',
-  name: 'Adeola Adeleke',
-  email: 'adeola@adeolafoods.ng',
-  role: 'admin',
-  isActive: true,
-  phone: '+234 802 345 6789',
-  lastActive: new Date().toISOString(),
-  createdAt: '2026-01-01T00:00:00Z',
-};
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
 
-const MOCK_BUSINESS: Business = {
-  id: 'biz-001',
-  name: 'Adeola Foods & Provisions',
-  type: 'Retail Foodstuff & Provisions',
-  email: 'info@adeolafoods.ng',
-  phone: '+234 802 345 6789',
-  address: '14 Broad Street, Lagos Island',
-  city: 'Lagos',
-  state: 'Lagos State',
-  country: 'Nigeria',
-  currency: 'NGN',
-  currencySymbol: '₦',
-  locale: 'en-NG',
-};
+export interface RegisterPayload {
+  fullName: string;
+  email: string;
+  password: string;
+}
+
+export interface OnboardingPayload {
+  businessName: string;
+  businessType: string;
+  ownerName: string;
+  phone: string;
+  email: string;
+  address: string;
+  currency: string;
+  locale: string;
+}
+
+export interface AuthSessionResponse {
+  user: User;
+  accessToken: string;
+  needsOnboarding?: boolean;
+  needsEmailVerification?: boolean;
+}
 
 export const authApi = {
-  async login(payload: LoginRequest): Promise<AuthResponse> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 200));
-      if (payload.password === 'wrong') {
-        throw new Error('Invalid email or password.');
-      }
-      const token = 'mock-jwt-token-12345';
-      setAccessToken(token);
-      return {
-        user: { ...MOCK_ADMIN_USER, email: payload.email || MOCK_ADMIN_USER.email },
-        business: MOCK_BUSINESS,
-        accessToken: token,
-      };
-    }
-    const res = await apiClient.post<AuthResponse>('/auth/login', payload);
-    setAccessToken(res.data.accessToken || null);
-    return res.data;
-  },
-
-  async register(payload: RegisterRequest): Promise<AuthResponse> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 250));
-      return {
-        user: { ...MOCK_ADMIN_USER, name: payload.name, email: payload.email },
-        business: { ...MOCK_BUSINESS, name: payload.businessName },
-        accessToken: 'mock-jwt-token-reg',
-      };
-    }
-    const res = await apiClient.post<AuthResponse>('/auth/register', payload);
-    return res.data;
-  },
-
-  async getMe(): Promise<{ user: User; business: Business }> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 100));
-      return { user: MOCK_ADMIN_USER, business: MOCK_BUSINESS };
-    }
-    const res = await apiClient.get<{ user: User; business: Business }>('/auth/me');
-    return res.data;
-  },
-
-  async logout(): Promise<void> {
-    setAccessToken(null);
+  async login(payload: LoginPayload): Promise<ApiResponse<AuthSessionResponse>> {
     if (!API_CONFIG.useMockApi) {
-      await apiClient.post('/auth/logout');
+      const { data } = await axiosInstance.post<ApiResponse<AuthSessionResponse>>(
+        API_ENDPOINTS.AUTH.LOGIN,
+        payload
+      );
+      return data;
     }
+
+    const db = loadMockDb();
+    const emailNorm = payload.email.trim().toLowerCase();
+    const matched =
+      INITIAL_USERS.find((u) => u.email.toLowerCase() === emailNorm) ||
+      db.users.find((u) => u.email.toLowerCase() === emailNorm);
+
+    if (!matched) {
+      throw new Error('Invalid email or password. Use one of the store staff accounts.');
+    }
+    if (matched.status === 'inactive') {
+      throw new Error('This staff account has been deactivated by an administrator.');
+    }
+
+    return {
+      success: true,
+      data: {
+        user: matched,
+        accessToken: `mock-jwt-${matched.id}-${Date.now()}`,
+      },
+    };
   },
 
-  async verifyEmail(code: string): Promise<boolean> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 200));
-      return code.length === 6;
+  async register(payload: RegisterPayload): Promise<ApiResponse<AuthSessionResponse>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<AuthSessionResponse>>(
+        API_ENDPOINTS.AUTH.REGISTER,
+        payload
+      );
+      return data;
     }
-    const res = await apiClient.post('/auth/verify-email', { code });
-    return res.status === 200;
+
+    const db = loadMockDb();
+    const newUser: User = {
+      id: `usr-${Date.now().toString().slice(-4)}`,
+      fullName: payload.fullName.trim(),
+      email: payload.email.trim().toLowerCase(),
+      phone: '+234 803 000 0000',
+      role: 'super_business_admin',
+      status: 'active',
+      businessId: 'biz-01',
+      lastActiveAt: new Date().toISOString(),
+      avatarInitials: getInitials(payload.fullName),
+    };
+
+    db.users.unshift(newUser);
+    saveMockDb(db);
+
+    return {
+      success: true,
+      data: {
+        user: newUser,
+        accessToken: `mock-jwt-${newUser.id}-${Date.now()}`,
+        needsEmailVerification: true,
+        needsOnboarding: true,
+      },
+    };
   },
 
-  async completeOnboarding(payload: OnboardingRequest): Promise<Business> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 200));
-      return {
-        ...MOCK_BUSINESS,
-        name: payload.businessName,
-        type: payload.businessType,
-        phone: payload.phone,
-        email: payload.email,
-        address: payload.address,
-      };
+  async completeOnboarding(payload: OnboardingPayload): Promise<ApiResponse<{ completed: boolean }>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<{ completed: boolean }>>(
+        API_ENDPOINTS.BUSINESS.CREATE,
+        payload
+      );
+      return data;
     }
-    const res = await apiClient.post<Business>('/businesses', payload);
-    return res.data;
+
+    const db = loadMockDb();
+    db.settings = {
+      ...db.settings,
+      businessName: payload.businessName,
+      businessType: payload.businessType,
+      phone: payload.phone,
+      email: payload.email,
+      address: payload.address,
+      currency: payload.currency,
+      locale: payload.locale,
+    };
+    saveMockDb(db);
+
+    return {
+      success: true,
+      data: { completed: true },
+    };
+  },
+
+  async verifyEmail(code: string): Promise<ApiResponse<{ verified: boolean }>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<{ verified: boolean }>>(
+        API_ENDPOINTS.AUTH.VERIFY_EMAIL,
+        { code }
+      );
+      return data;
+    }
+
+    if (code.trim().length !== 6) {
+      throw new Error('Please enter the 6-digit verification code.');
+    }
+    return {
+      success: true,
+      data: { verified: true },
+    };
+  },
+
+  async requestPasswordReset(email: string): Promise<ApiResponse<{ sent: boolean }>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<{ sent: boolean }>>(
+        API_ENDPOINTS.AUTH.FORGOT_PASSWORD,
+        { email }
+      );
+      return data;
+    }
+
+    return {
+      success: true,
+      message: `Simulated password reset instructions prepared for ${email}.`,
+      data: { sent: true },
+    };
+  },
+
+  async switchDemoRole(role: UserRole): Promise<ApiResponse<User>> {
+    const db = loadMockDb();
+    const userForRole =
+      INITIAL_USERS.find((u) => u.role === role && u.status === 'active') ||
+      db.users.find((u) => u.role === role && u.status === 'active') ||
+      INITIAL_USERS[0];
+    return {
+      success: true,
+      data: userForRole,
+    };
   },
 };
-

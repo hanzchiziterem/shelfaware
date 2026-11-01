@@ -1,80 +1,81 @@
-import { apiClient } from '../../../services/api/axiosInstance';
-import { API_CONFIG } from '../../../services/api/apiConfig';
-import { User, Role } from '../../../types/domain';
+import { loadMockDb, saveMockDb } from '@/mocks/mockDb';
+import { API_CONFIG } from '@/services/api/apiConfig';
+import { API_ENDPOINTS, type ApiResponse } from '@/services/api/apiTypes';
+import { axiosInstance } from '@/services/api/axiosInstance';
+import type { AccountStatus, User, UserRole } from '@/types/common';
+import { getInitials } from '@/utils/formatters';
 
-const INITIAL_USERS: User[] = [
-  {
-    id: 'usr-001',
-    name: 'Adeola Adeleke',
-    email: 'adeola@adeolafoods.ng',
-    role: 'admin',
-    isActive: true,
-    phone: '+234 802 345 6789',
-    lastActive: 'Just now',
-    createdAt: '2026-01-01T00:00:00Z',
-  },
-  {
-    id: 'usr-002',
-    name: 'Bolanle Alao',
-    email: 'bolanle.alao@adeolafoods.ng',
-    role: 'manager',
-    isActive: true,
-    phone: '+234 813 908 1122',
-    lastActive: '25m ago',
-    createdAt: '2026-02-15T00:00:00Z',
-  },
-  {
-    id: 'usr-003',
-    name: 'Kehinde Shonibare',
-    email: 'kehinde.s@adeolafoods.ng',
-    role: 'cashier',
-    isActive: true,
-    phone: '+234 809 333 4455',
-    lastActive: '10m ago',
-    createdAt: '2026-03-01T00:00:00Z',
-  },
-];
-
-let mockUsers = [...INITIAL_USERS];
+export interface CreateUserPayload {
+  fullName: string;
+  email: string;
+  phone: string;
+  role: UserRole;
+}
 
 export const userApi = {
-  async getUsers(): Promise<User[]> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 100));
-      return [...mockUsers];
+  async getUsers(): Promise<ApiResponse<User[]>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.get<ApiResponse<User[]>>(API_ENDPOINTS.USERS.BASE);
+      return data;
     }
-    const res = await apiClient.get<User[]>('/users');
-    return res.data;
+
+    const db = loadMockDb();
+    return {
+      success: true,
+      data: [...db.users],
+    };
   },
 
-  async createUser(data: { name: string; email: string; role: Role; phone?: string }): Promise<User> {
-    if (API_CONFIG.useMockApi) {
-      const newUser: User = {
-        id: `usr-${Date.now()}`,
-        name: data.name,
-        email: data.email,
-        role: data.role,
-        phone: data.phone,
-        isActive: true,
-        lastActive: 'Never',
-        createdAt: new Date().toISOString(),
-      };
-      mockUsers.push(newUser);
-      return newUser;
+  async createUser(payload: CreateUserPayload): Promise<ApiResponse<User>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<User>>(
+        API_ENDPOINTS.USERS.BASE,
+        payload
+      );
+      return data;
     }
-    const res = await apiClient.post<User>('/users', data);
-    return res.data;
+
+    const db = loadMockDb();
+    const newUser: User = {
+      id: `usr-${Date.now().toString().slice(-4)}`,
+      fullName: payload.fullName.trim(),
+      email: payload.email.trim().toLowerCase(),
+      phone: payload.phone.trim(),
+      role: payload.role,
+      status: 'active',
+      businessId: 'biz-01',
+      lastActiveAt: new Date().toISOString(),
+      avatarInitials: getInitials(payload.fullName),
+    };
+
+    db.users.push(newUser);
+    saveMockDb(db);
+    return {
+      success: true,
+      data: newUser,
+    };
   },
 
-  async toggleUserActive(userId: string): Promise<User> {
-    if (API_CONFIG.useMockApi) {
-      const idx = mockUsers.findIndex((u) => u.id === userId);
-      if (idx === -1) throw new Error('User not found');
-      mockUsers[idx] = { ...mockUsers[idx], isActive: !mockUsers[idx].isActive };
-      return mockUsers[idx];
-    }
-    const res = await apiClient.post<User>(`/users/${userId}/toggle`);
-    return res.data;
+  async updateUser(
+    userId: string,
+    payload: Partial<{ fullName: string; phone: string; role: UserRole; status: AccountStatus }>
+  ): Promise<ApiResponse<User>> {
+    const db = loadMockDb();
+    const idx = db.users.findIndex((u) => u.id === userId);
+    if (idx === -1) throw new Error('Staff user not found.');
+
+    db.users[idx] = {
+      ...db.users[idx],
+      ...payload,
+      avatarInitials: payload.fullName
+        ? getInitials(payload.fullName)
+        : db.users[idx].avatarInitials,
+    };
+    saveMockDb(db);
+
+    return {
+      success: true,
+      data: { ...db.users[idx] },
+    };
   },
 };
-

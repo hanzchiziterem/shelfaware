@@ -1,303 +1,930 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import {
-  SlidersHorizontal,
-  ClockAlert,
-  Package,
-  Plus,
-} from 'lucide-react';
-import { useProductStore } from '../../../store/productStore';
-import { useInventoryStore } from '../../../store/inventoryStore';
-import { useSalesStore } from '../../../store/salesStore';
-import { StockAdjustmentModal } from '../components/StockAdjustmentModal';
-import { ProductDetailPanel } from '../components/ProductDetailPanel';
-import { ProductFormModal } from '../../products/components/ProductFormModal';
-import { formatNaira } from '../../../utils/currency';
-import { Product } from '../../../types/domain';
-import { PATHS } from '../../../router/paths';
+import { useEffect, useState } from 'react';
+import { hasPermission } from '@/app/config/permissions';
+import { Button } from '@/components/ui/Button';
+import { Dialog } from '@/components/ui/Dialog';
+import { StatusIndicator } from '@/components/ui/StatusIndicator';
+import { useAuthStore } from '@/store/authStore';
+import { useInventoryStore } from '@/store/inventoryStore';
+import { useSettingsStore } from '@/store/settingsStore';
+import { useUiStore } from '@/store/uiStore';
+import type { Product } from '@/types/common';
+import { formatCompactCurrency, formatCurrency } from '@/utils/currency';
+import { formatFullDateTime, getDaysUntilExpiry } from '@/utils/dates';
+import { getStockStatus } from '@/utils/formatters';
+import styles from './InventoryPage.module.css';
 
-export const InventoryPage: React.FC = () => {
-  const { products, fetchProducts } = useProductStore();
-  const { fetchMovements } = useInventoryStore();
-  const { sales, fetchSales } = useSalesStore();
+export function InventoryPage() {
+  const user = useAuthStore((s) => s.user);
+  const settings = useSettingsStore((s) => s.settings);
+  const pushToast = useUiStore((s) => s.pushToast);
 
-  const [activeTab, setActiveTab] = useState<'all' | 'active' | 'low' | 'archived'>('all');
+  const products = useInventoryStore((s) => s.products);
+  const movements = useInventoryStore((s) => s.movements);
+  const batches = useInventoryStore((s) => s.batches);
+  const stocktakes = useInventoryStore((s) => s.stocktakes);
+  const fetchInventory = useInventoryStore((s) => s.fetchInventory);
+  const adjustStock = useInventoryStore((s) => s.adjustStock);
+  const registerBatch = useInventoryStore((s) => s.registerBatch);
+  const recordStocktake = useInventoryStore((s) => s.recordStocktake);
+
+  const canAdjustInventory = hasPermission(user?.role, 'adjust_inventory');
+  const canViewCost = hasPermission(user?.role, 'view_cost_price');
+
+  const [activeTab, setActiveTab] = useState<
+    'all' | 'low_stock' | 'batches' | 'movements' | 'stocktake'
+  >('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [comparePrior, setComparePrior] = useState(true);
+
+  // Stock adjustment modal state
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
+  const [adjustType, setAdjustType] = useState<'add' | 'remove'>('add');
+  const [adjustQty, setAdjustQty] = useState('5');
+  const [adjustReason, setAdjustReason] = useState('Supplier bonus bags / physical recount');
+  const [adjustNotes, setAdjustNotes] = useState('');
+
+  // Batch registration modal state
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchProductId, setBatchProductId] = useState('prod-112');
+  const [batchNum, setBatchNum] = useState('BATCH-FRZ-2611');
+  const [batchExpiry, setBatchExpiry] = useState('2027-02-15');
+  const [batchQty, setBatchQty] = useState('10');
 
   useEffect(() => {
-    fetchProducts();
-    fetchMovements();
-    fetchSales();
-  }, [fetchProducts, fetchMovements, fetchSales]);
+    void fetchInventory();
+  }, [fetchInventory]);
 
-  // Set initial selected product for docked panel or keep current if valid
   useEffect(() => {
-    if (products.length > 0) {
-      if (!selectedProduct || !products.some((p) => p.id === selectedProduct.id)) {
-        setSelectedProduct(products[0]);
-      }
-    } else {
-      setSelectedProduct(null);
+    if (products.length > 0 && !selectedProduct) {
+      setSelectedProduct(products[0]);
+    } else if (selectedProduct) {
+      const updated = products.find((p) => p.id === selectedProduct.id);
+      if (updated) setSelectedProduct(updated);
     }
   }, [products, selectedProduct]);
 
-  const totalVolume = products.reduce((acc, p) => acc + p.currentStock, 0);
-  const totalRetailVal = products.reduce((acc, p) => acc + p.currentStock * p.sellingPrice, 0);
+  const activeProducts = products.filter((p) => p.status === 'active');
+  const inStockSkuCount = activeProducts.filter((p) => p.stockQuantity > 0).length;
+  const distinctUnitsCount = new Set(activeProducts.map((p) => p.unit)).size;
 
-  // Dynamic inventory turnover calculation: units sold vs total inventory
-  const completedSales = sales.filter((s) => s.status === 'completed');
-  const itemsSold = completedSales.reduce(
-    (acc, s) => acc + s.items.reduce((sum, it) => sum + it.quantity, 0),
+  const totalValuation = activeProducts.reduce(
+    (acc, p) => acc + (canViewCost ? p.costPrice : p.sellingPrice) * p.stockQuantity,
     0
   );
-  const turnoverRatio = totalVolume > 0 ? ((itemsSold / totalVolume) * 4.5).toFixed(2) : '0.00';
+
+  const lowStockCount = activeProducts.filter(
+    (p) => p.stockQuantity > 0 && p.stockQuantity <= p.minStockThreshold
+  ).length;
+  const outOfStockCount = activeProducts.filter((p) => p.stockQuantity <= 0).length;
+  const lowAndOutCount = lowStockCount + outOfStockCount;
+
+  const expiringBatchCount = batches.filter(
+    (b) => getDaysUntilExpiry(b.expiryDate) <= settings.expiryWarningDays
+  ).length;
 
   const filteredProducts = products.filter((p) => {
-    if (activeTab === 'active') return p.isActive && p.currentStock > p.minStockThreshold;
-    if (activeTab === 'low') return p.isActive && p.currentStock <= p.minStockThreshold;
-    if (activeTab === 'archived') return !p.isActive;
+    if (activeTab === 'low_stock' && p.stockQuantity > p.minStockThreshold) return false;
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        p.categoryName.toLowerCase().includes(q)
+      );
+    }
     return true;
   });
 
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) {
-      setSelectedIds(filteredProducts.map((p) => p.id));
-    } else {
-      setSelectedIds([]);
+  const handleConfirmAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct) return;
+    const qtyNum = parseFloat(adjustQty);
+    if (Number.isNaN(qtyNum) || qtyNum <= 0) {
+      pushToast({ title: 'Enter a valid positive quantity', tone: 'error' });
+      return;
+    }
+
+    const ok = await adjustStock({
+      productId: selectedProduct.id,
+      adjustmentType: adjustType,
+      quantity: qtyNum,
+      reason: adjustReason,
+      notes: adjustNotes || undefined,
+      performedBy: user?.fullName || 'Store Manager',
+    });
+
+    if (ok) {
+      setAdjustModalOpen(false);
+      pushToast({
+        title: `Stock updated for ${selectedProduct.name}`,
+        description: 'Auditable stock movement logged.',
+        tone: 'success',
+      });
     }
   };
 
-  const handleSelectRow = (id: string) => {
-    if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter((item) => item !== id));
-    } else {
-      setSelectedIds([...selectedIds, id]);
+  const handleConfirmBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const prod = products.find((p) => p.id === batchProductId);
+    if (!prod) return;
+
+    const ok = await registerBatch({
+      productId: prod.id,
+      batchNumber: batchNum,
+      expiryDate: batchExpiry,
+      quantity: Number(batchQty) || 1,
+      unitCost: prod.costPrice,
+      performedBy: user?.fullName || 'Store Manager',
+    });
+
+    if (ok) {
+      setBatchModalOpen(false);
+      pushToast({
+        title: `Batch ${batchNum} registered for ${prod.name}`,
+        tone: 'success',
+      });
     }
   };
+
+  const handleQuickStocktake = async () => {
+    const ok = await recordStocktake({
+      countedBy: user?.fullName || 'Store Manager',
+      notes: 'Verified physical store shelf & coldroom balances.',
+      counts: products.map((p) => ({
+        productId: p.id,
+        countedQuantity: p.stockQuantity,
+      })),
+    });
+    if (ok) {
+      pushToast({
+        title: 'Stocktake reconciliation completed',
+        description: `Verified ${products.length} foodstuff SKUs.`,
+        tone: 'success',
+      });
+    }
+  };
+
+  const selectedProductMovements = selectedProduct
+    ? movements.filter((m) => m.productId === selectedProduct.id).slice(0, 4)
+    : [];
 
   return (
-    <div className="space-y-6">
-      {/* Page Title & Top Actions matching image 2 */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Inventory</h1>
-
-        <div className="flex items-center gap-2">
-          <Link to={PATHS.EXPIRY}>
-            <button className="h-8 px-3 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shadow-xs">
-              <ClockAlert className="w-3.5 h-3.5 text-amber-500" />
-              <span>Perishables Watch</span>
-            </button>
-          </Link>
-          <button
-            onClick={() => setIsAdjustModalOpen(true)}
-            className="h-8 px-3 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shadow-xs"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-            <span>Adjust Stock</span>
-          </button>
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="h-8 px-3 rounded-md bg-[#0F172A] hover:bg-slate-800 text-xs font-semibold text-white flex items-center gap-1.5 transition-colors shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Product</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Top 3 Metric Blocks matching image 2: Total volume, Inventory value, Turnover */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Block 1 */}
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-subtle">
-          <span className="text-3xl font-black text-slate-900 tracking-tight block font-mono">
-            {totalVolume.toLocaleString()}
-          </span>
-          <span className="text-xs text-slate-400 mt-1 block">Total inventory volume</span>
+    <div
+      className={`${styles.inventoryLayout} ${
+        !selectedProduct ? styles.inventoryLayoutFull : ''
+      }`}
+    >
+      <div className={styles.mainWorkspace}>
+        <div className={styles.headerRow}>
+          <div>
+            <h1 className={styles.pageTitle}>Inventory</h1>
+            <p className={styles.pageSubtitle}>
+              Stock on hand by unit, stock movements, manual adjustments, stocktakes, and batch expiry tracking
+            </p>
+          </div>
+          {canAdjustInventory && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Button variant="secondary" onClick={() => setBatchModalOpen(true)}>
+                + Register Expiry Batch
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  if (!selectedProduct && products[0]) setSelectedProduct(products[0]);
+                  setAdjustModalOpen(true);
+                }}
+              >
+                Adjust Stock
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Block 2 */}
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-subtle">
-          <span className="text-3xl font-black text-slate-900 tracking-tight block font-mono">
-            {formatNaira(totalRetailVal, { decimals: 0 })}
-          </span>
-          <span className="text-xs text-slate-400 mt-1 block">Inventory value</span>
+        {/* 3 meaningful inventory summary stat blocks (no meaningless cross-unit sum) */}
+        <div className={styles.statBlocksGrid}>
+          <div className={styles.statBlock}>
+            <span className={styles.statBigNumber}>
+              {inStockSkuCount} / {activeProducts.length} SKUs
+            </span>
+            <span className={styles.statCaption}>
+              Active SKUs in stock across {distinctUnitsCount} unit types (bags, cartons, tins, kg)
+            </span>
+          </div>
+          <div className={styles.statBlock}>
+            <span className={styles.statBigNumber}>{formatCompactCurrency(totalValuation)}</span>
+            <span className={styles.statCaption}>
+              {canViewCost
+                ? `Inventory cost valuation (${formatCurrency(totalValuation, settings.currency, settings.locale)})`
+                : `Inventory retail valuation (${formatCurrency(totalValuation, settings.currency, settings.locale)})`}
+            </span>
+          </div>
+          <div className={styles.statBlock}>
+            <span className={styles.statBigNumber}>
+              {lowAndOutCount} Alerts · {expiringBatchCount} Expiring
+            </span>
+            <span className={styles.statCaption}>
+              {lowStockCount} low stock · {outOfStockCount} out of stock · {expiringBatchCount} batch(es) within {settings.expiryWarningDays}d
+            </span>
+          </div>
         </div>
 
-        {/* Block 3 */}
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-subtle">
-          <span className="text-3xl font-black text-slate-900 tracking-tight block font-mono">
-            {turnoverRatio}
-          </span>
-          <span className="text-xs text-slate-400 mt-1 block">Inventory turnover</span>
+        {/* Clean underline tabs */}
+        <div className={styles.tabsAndSearchRow}>
+          <div className={styles.underlineTabs} role="tablist">
+            {(
+              [
+                { id: 'all', label: `All Stock (${products.length})` },
+                { id: 'low_stock', label: `Low & Out of Stock (${lowAndOutCount})` },
+                { id: 'batches', label: `Perishable Batches (${batches.length})` },
+                { id: 'movements', label: `Stock Movements (${movements.length})` },
+                { id: 'stocktake', label: `Stocktakes (${stocktakes.length})` },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                className={`${styles.tabBtn} ${activeTab === tab.id ? styles.tabBtnActive : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className={styles.filterRight}>
+            <input
+              type="search"
+              className={styles.searchField}
+              placeholder="Filter product, SKU, category..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
-      </div>
 
-      {/* Filter Tabs matching image 2: All, Active, Draft, Archived, Custom + */}
-      <div className="flex items-center gap-6 border-b border-slate-200 text-xs font-medium text-slate-500">
-        {[
-          { id: 'all', label: 'All' },
-          { id: 'active', label: 'Active' },
-          { id: 'low', label: 'Low Stock' },
-          { id: 'archived', label: 'Archived' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`pb-2.5 transition-colors select-none ${
-              activeTab === tab.id
-                ? 'border-b-2 border-slate-900 text-slate-900 font-bold'
-                : 'hover:text-slate-900'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="pb-2.5 text-slate-400 hover:text-slate-700 flex items-center gap-1 select-none"
-        >
-          <span>Custom +</span>
-        </button>
-      </div>
-
-      {/* Split View: Inventory Table on Left + Docked Detail Panel on Right matching image 2 */}
-      <div className="flex flex-col xl:flex-row gap-5 items-start">
-        {/* Table on Left */}
-        <div className="flex-1 w-full bg-white border border-slate-200 rounded-lg shadow-subtle overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-400 text-[11px] font-medium bg-white">
-                <th className="w-10 px-3 py-2.5 text-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.length === filteredProducts.length && filteredProducts.length > 0}
-                    onChange={handleSelectAll}
-                    className="rounded border-slate-300 text-slate-900 focus:ring-0 cursor-pointer"
-                  />
-                </th>
-                <th className="px-3 py-2.5 font-medium text-slate-500">Product</th>
-                <th className="px-3 py-2.5 font-medium text-slate-500">Category</th>
-                <th className="px-3 py-2.5 font-medium text-slate-500">SKU</th>
-                <th className="px-3 py-2.5 font-medium text-slate-500">Stock</th>
-                <th className="px-3 py-2.5 font-medium text-slate-500">Unit</th>
-                <th className="px-3 py-2.5 font-medium text-slate-500">Selling Price</th>
-                <th className="px-3 py-2.5 font-medium text-slate-500">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filteredProducts.map((p) => {
-                const isSelected = selectedIds.includes(p.id);
-                const isActiveProduct = selectedProduct?.id === p.id;
-                const isLow = p.currentStock <= p.minStockThreshold;
-
-                return (
-                  <tr
-                    key={p.id}
-                    onClick={() => setSelectedProduct(p)}
-                    className={`hover:bg-slate-50/80 transition-colors cursor-pointer ${
-                      isActiveProduct ? 'bg-slate-50 font-medium' : ''
-                    }`}
-                  >
-                    {/* Checkbox */}
-                    <td
-                      className="px-3 py-2 text-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleSelectRow(p.id)}
-                        className="rounded border-slate-300 text-slate-900 focus:ring-0 cursor-pointer"
-                      />
-                    </td>
-
-                    {/* Product Name with Thumbnail matching image 2 */}
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
-                          <Package className="w-3.5 h-3.5 text-slate-400" />
-                        </div>
-                        <span className="font-semibold text-slate-900 line-clamp-1 max-w-[200px]">
-                          {p.name}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Category */}
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">
-                      {p.categoryName}
-                    </td>
-
-                    {/* SKU */}
-                    <td className="px-3 py-2 font-mono text-slate-500 whitespace-nowrap text-[11px]">
-                      {p.sku}
-                    </td>
-
-                    {/* Stock level */}
-                    <td className="px-3 py-2 font-bold text-slate-900 font-mono">
-                      {p.currentStock}
-                    </td>
-
-                    {/* Unit */}
-                    <td className="px-3 py-2 capitalize text-slate-500">
-                      {p.unit}
-                    </td>
-
-                    {/* Price */}
-                    <td className="px-3 py-2 font-bold font-mono text-slate-900">
-                      {formatNaira(p.sellingPrice)}
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                          isLow
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        }`}
-                      >
-                        {isLow ? 'Low Stock' : 'Active'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {filteredProducts.length === 0 && (
+        {/* Tab 1 & 2: Product Inventory Balances Table */}
+        {(activeTab === 'all' || activeTab === 'low_stock') && (
+          <div className={styles.tableWrap}>
+            <table className={styles.invTable}>
+              <thead>
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 text-xs">
-                    No products in selected inventory view.
-                  </td>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>SKU</th>
+                  <th style={{ textAlign: 'right' }}>Available Stock</th>
+                  <th style={{ textAlign: 'right' }}>Reorder Level</th>
+                  {canViewCost && <th style={{ textAlign: 'right' }}>Stock Cost Value</th>}
+                  <th>Stock Health</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filteredProducts.map((product) => {
+                  const status = getStockStatus(product.stockQuantity, product.minStockThreshold);
+                  const isSelected = selectedProduct?.id === product.id;
 
-        {/* Right Docked Contextual Product Detail Panel matching image 2 */}
-        {selectedProduct && (
-          <ProductDetailPanel
-            product={selectedProduct}
-            onClose={() => setSelectedProduct(null)}
-            onEdit={() => setIsAddModalOpen(true)}
-          />
+                  return (
+                    <tr
+                      key={product.id}
+                      className={isSelected ? styles.activeRow : ''}
+                      onClick={() => setSelectedProduct(product)}
+                    >
+                      <td>
+                        <div className={styles.productCell}>
+                          <span className={styles.itemSquare}>
+                            {product.name.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span>{product.name}</span>
+                        </div>
+                      </td>
+                      <td style={{ color: 'var(--color-text-secondary)' }}>
+                        {product.categoryName}
+                      </td>
+                      <td
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '12px',
+                          color: 'var(--color-text-secondary)',
+                        }}
+                      >
+                        {product.sku}
+                      </td>
+                      <td
+                        className="tabular-nums"
+                        style={{ textAlign: 'right', fontWeight: 600 }}
+                      >
+                        {product.stockQuantity} {product.unit}
+                      </td>
+                      <td
+                        className="tabular-nums"
+                        style={{ textAlign: 'right', color: 'var(--color-text-muted)' }}
+                      >
+                        {product.minStockThreshold} {product.unit}
+                      </td>
+                      {canViewCost && (
+                        <td
+                          className="tabular-nums"
+                          style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}
+                        >
+                          {formatCurrency(
+                            product.costPrice * product.stockQuantity,
+                            settings.currency,
+                            settings.locale
+                          )}
+                        </td>
+                      )}
+                      <td>
+                        {status === 'in_stock' && (
+                          <StatusIndicator tone="success" label="Healthy" />
+                        )}
+                        {status === 'low_stock' && (
+                          <StatusIndicator tone="warning" label="Low stock" />
+                        )}
+                        {status === 'out_of_stock' && (
+                          <StatusIndicator tone="danger" label="Out of stock" />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Tab 3: Expiry & Perishable Stock Batches */}
+        {activeTab === 'batches' && (
+          <div className={styles.tableWrap}>
+            <table className={styles.invTable}>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Batch / Lot</th>
+                  <th>Expiry Date</th>
+                  <th style={{ textAlign: 'right' }}>Remaining Qty</th>
+                  {canViewCost && <th style={{ textAlign: 'right' }}>Value at Risk</th>}
+                  <th>Window Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((batch) => {
+                  const days = getDaysUntilExpiry(batch.expiryDate);
+                  const valueAtRisk = batch.remainingQuantity * batch.unitCost;
+                  return (
+                    <tr key={batch.id}>
+                      <td style={{ fontWeight: 500 }}>{batch.productName}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+                        {batch.batchNumber}
+                      </td>
+                      <td className="tabular-nums">{batch.expiryDate}</td>
+                      <td
+                        className="tabular-nums"
+                        style={{ textAlign: 'right', fontWeight: 600 }}
+                      >
+                        {batch.remainingQuantity} {batch.unit}
+                      </td>
+                      {canViewCost && (
+                        <td className="tabular-nums" style={{ textAlign: 'right' }}>
+                          {formatCurrency(valueAtRisk, settings.currency, settings.locale)}
+                        </td>
+                      )}
+                      <td>
+                        {days <= 0 ? (
+                          <StatusIndicator
+                            tone="danger"
+                            label={`Expired (${Math.abs(days)}d ago)`}
+                            appearance="tag"
+                          />
+                        ) : days <= settings.expiryWarningDays ? (
+                          <StatusIndicator
+                            tone="warning"
+                            label={`Expiring in ${days}d`}
+                            appearance="tag"
+                          />
+                        ) : (
+                          <StatusIndicator
+                            tone="success"
+                            label={`${days}d remaining`}
+                            appearance="tag"
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Tab 4: Immutable Stock Movement Ledger */}
+        {activeTab === 'movements' && (
+          <div className={styles.tableWrap}>
+            <table className={styles.invTable}>
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>Product</th>
+                  <th>Reason / Reference</th>
+                  <th style={{ textAlign: 'right' }}>Change</th>
+                  <th style={{ textAlign: 'right' }}>New Balance</th>
+                  <th>Staff</th>
+                </tr>
+              </thead>
+              <tbody>
+                {movements.map((mov) => (
+                  <tr key={mov.id}>
+                    <td
+                      className="tabular-nums"
+                      style={{ color: 'var(--color-text-muted)', fontSize: '12px' }}
+                    >
+                      {formatFullDateTime(mov.createdAt)}
+                    </td>
+                    <td style={{ fontWeight: 500 }}>{mov.productName}</td>
+                    <td style={{ color: 'var(--color-text-secondary)' }}>{mov.reason}</td>
+                    <td
+                      className="tabular-nums"
+                      style={{
+                        textAlign: 'right',
+                        fontWeight: 600,
+                        color:
+                          mov.quantityChange >= 0
+                            ? 'var(--color-success)'
+                            : 'var(--color-danger)',
+                      }}
+                    >
+                      {mov.quantityChange >= 0 ? `+${mov.quantityChange}` : mov.quantityChange}{' '}
+                      {mov.unit}
+                    </td>
+                    <td
+                      className="tabular-nums"
+                      style={{ textAlign: 'right', fontWeight: 600 }}
+                    >
+                      {mov.newBalance} {mov.unit}
+                    </td>
+                    <td style={{ color: 'var(--color-text-secondary)' }}>{mov.performedBy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Tab 5: Stocktake Sessions */}
+        {activeTab === 'stocktake' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                Record physical store counts to reconcile discrepancies with system balances.
+              </span>
+              {canAdjustInventory && (
+                <Button variant="secondary" size="sm" onClick={() => void handleQuickStocktake()}>
+                  + Record Full Store Stocktake
+                </Button>
+              )}
+            </div>
+            <div className={styles.tableWrap}>
+              <table className={styles.invTable}>
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Date</th>
+                    <th>Counted By</th>
+                    <th style={{ textAlign: 'right' }}>SKUs Counted</th>
+                    <th style={{ textAlign: 'right' }}>Discrepancies</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stocktakes.map((stk) => (
+                    <tr key={stk.id}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        {stk.reference}
+                      </td>
+                      <td className="tabular-nums">{formatFullDateTime(stk.createdAt)}</td>
+                      <td>{stk.countedBy}</td>
+                      <td className="tabular-nums" style={{ textAlign: 'right' }}>
+                        {stk.itemsCounted}
+                      </td>
+                      <td className="tabular-nums" style={{ textAlign: 'right' }}>
+                        {stk.discrepanciesFound}
+                      </td>
+                      <td>
+                        <StatusIndicator tone="success" label="Completed" appearance="tag" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Modals */}
-      <StockAdjustmentModal
-        isOpen={isAdjustModalOpen}
-        onClose={() => setIsAdjustModalOpen(false)}
-      />
-      <ProductFormModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-      />
+      {/* Right Contextual Product Inventory Detail Drawer */}
+      {selectedProduct && (
+        <aside className={styles.detailDrawer} aria-label="Selected Product Inventory Details">
+          <div className={styles.drawerHeaderRow}>
+            <div className={styles.drawerTitle}>{selectedProduct.name}</div>
+            <button
+              type="button"
+              className={styles.closeDrawerBtn}
+              aria-label="Close inventory details"
+              onClick={() => setSelectedProduct(null)}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className={styles.drawerActionStrip}>
+            {canAdjustInventory && (
+              <Button variant="primary" size="sm" onClick={() => setAdjustModalOpen(true)}>
+                Adjust Stock
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                window.print();
+                pushToast({
+                  title: `Printed shelf label for ${selectedProduct.sku}`,
+                  tone: 'info',
+                });
+              }}
+            >
+              Print Shelf Label
+            </Button>
+          </div>
+
+          <div>
+            <div className={styles.infoSectionTitle}>Stock & valuation summary</div>
+            <div className={styles.infoGridWithThumb}>
+              <div className={styles.kvList}>
+                <span className={styles.kvKey}>SKU</span>
+                <span className={styles.kvVal} style={{ fontFamily: 'var(--font-mono)' }}>
+                  {selectedProduct.sku}
+                </span>
+
+                <span className={styles.kvKey}>On Hand</span>
+                <span className={`${styles.kvVal} tabular-nums`}>
+                  {selectedProduct.stockQuantity} {selectedProduct.unit}
+                </span>
+
+                <span className={styles.kvKey}>Reorder At</span>
+                <span className={`${styles.kvVal} tabular-nums`}>
+                  {selectedProduct.minStockThreshold} {selectedProduct.unit}
+                </span>
+
+                <span className={styles.kvKey}>Sold (30d)</span>
+                <span className={`${styles.kvVal} tabular-nums`}>
+                  {selectedProduct.processedCount} {selectedProduct.unit}
+                </span>
+
+                {canViewCost && (
+                  <>
+                    <span className={styles.kvKey}>Unit Cost</span>
+                    <span className={`${styles.kvVal} tabular-nums`}>
+                      {formatCurrency(
+                        selectedProduct.costPrice,
+                        settings.currency,
+                        settings.locale
+                      )}
+                    </span>
+
+                    <span className={styles.kvKey}>Stock Value</span>
+                    <span className={`${styles.kvVal} tabular-nums`}>
+                      {formatCurrency(
+                        selectedProduct.costPrice * selectedProduct.stockQuantity,
+                        settings.currency,
+                        settings.locale
+                      )}
+                    </span>
+                  </>
+                )}
+
+                <span className={styles.kvKey}>Health</span>
+                <span>
+                  <StatusIndicator
+                    tone={
+                      selectedProduct.stockQuantity <= 0
+                        ? 'danger'
+                        : selectedProduct.stockQuantity <= selectedProduct.minStockThreshold
+                        ? 'warning'
+                        : 'success'
+                    }
+                    label={
+                      selectedProduct.stockQuantity <= 0
+                        ? 'Out of stock'
+                        : selectedProduct.stockQuantity <= selectedProduct.minStockThreshold
+                        ? 'Low stock'
+                        : 'Healthy'
+                    }
+                    appearance="tag"
+                  />
+                </span>
+              </div>
+
+              <div className={styles.productBadgeBox}>
+                <span style={{ fontSize: '18px', fontWeight: 700 }}>
+                  {selectedProduct.name.slice(0, 2).toUpperCase()}
+                </span>
+                <span style={{ fontSize: '10.5px', color: 'var(--color-text-muted)' }}>
+                  {selectedProduct.unit.toUpperCase()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {selectedProductMovements.length > 0 && (
+            <div>
+              <div className={styles.infoSectionTitle}>Recent stock movements</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {selectedProductMovements.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: '12px',
+                      padding: '6px 8px',
+                      borderRadius: 'var(--radius-control)',
+                      backgroundColor: 'var(--color-surface-muted)',
+                    }}
+                  >
+                    <span style={{ color: 'var(--color-text-secondary)' }}>{m.reason}</span>
+                    <span
+                      className="tabular-nums"
+                      style={{
+                        fontWeight: 600,
+                        color:
+                          m.quantityChange >= 0 ? 'var(--color-success)' : 'var(--color-danger)',
+                      }}
+                    >
+                      {m.quantityChange >= 0 ? `+${m.quantityChange}` : m.quantityChange} {m.unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sales Statistics Line Chart */}
+          <div>
+            <div className={styles.statsHeaderRow}>
+              <span className={styles.infoSectionTitle}>Depletion trend</span>
+              <span style={{ fontSize: '11.5px', color: 'var(--color-text-muted)' }}>
+                This year
+              </span>
+            </div>
+
+            <svg
+              viewBox="0 0 300 130"
+              style={{ width: '100%', height: '130px', marginTop: '6px' }}
+              role="img"
+              aria-label="Product depletion statistics chart"
+            >
+              <rect x="115" y="10" width="95" height="95" fill="var(--color-surface-muted)" />
+              <line
+                x1="20"
+                y1="55"
+                x2="290"
+                y2="55"
+                stroke="var(--color-border)"
+                strokeDasharray="3 3"
+              />
+              <line x1="20" y1="105" x2="290" y2="105" stroke="var(--color-border)" />
+              {comparePrior && (
+                <polyline
+                  fill="none"
+                  stroke="#9ca3af"
+                  strokeWidth="1.5"
+                  strokeDasharray="3 3"
+                  points="25,45 65,48 105,62 145,58 185,68 225,52 275,60"
+                />
+              )}
+              <polyline
+                fill="none"
+                stroke="var(--color-text-primary)"
+                strokeWidth="1.8"
+                points="25,28 65,36 105,42 135,72 165,61 205,54 245,49 275,44"
+              />
+              <line
+                x1="210"
+                y1="10"
+                x2="210"
+                y2="105"
+                stroke="var(--color-text-primary)"
+                strokeDasharray="2 2"
+              />
+              <text x="20" y="122" fontSize="10" fill="var(--color-text-muted)">
+                January
+              </text>
+              <text x="140" y="122" fontSize="10" fill="var(--color-text-muted)">
+                June
+              </text>
+              <text x="260" y="122" fontSize="10" fill="var(--color-text-muted)">
+                Oct
+              </text>
+            </svg>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: '10px',
+                fontSize: '12px',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={comparePrior}
+                  onChange={(e) => setComparePrior(e.target.checked)}
+                />
+                <span>Compare to prior</span>
+              </label>
+
+              <div style={{ display: 'flex', gap: '10px', fontSize: '11.5px' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>▪ 2025</span>
+                <span style={{ fontWeight: 600 }}>▪ 2026</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* Stock Adjustment Modal */}
+      <Dialog
+        open={adjustModalOpen}
+        onClose={() => setAdjustModalOpen(false)}
+        title={`Adjust Stock — ${selectedProduct?.name || ''}`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAdjustModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={(e) => void handleConfirmAdjustment(e)}>
+              Confirm Adjustment
+            </Button>
+          </>
+        }
+      >
+        <form className={styles.formStack} onSubmit={handleConfirmAdjustment}>
+          <div style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
+            Current balance:{' '}
+            <strong>
+              {selectedProduct?.stockQuantity} {selectedProduct?.unit}
+            </strong>
+          </div>
+
+          <div className={styles.fieldRow}>
+            <label htmlFor="adj-type" className={styles.fieldLabel}>
+              Adjustment type
+            </label>
+            <select
+              id="adj-type"
+              className={styles.fieldSelect}
+              value={adjustType}
+              onChange={(e) => setAdjustType(e.target.value as 'add' | 'remove')}
+            >
+              <option value="add">Add stock (+)</option>
+              <option value="remove">Deduct / write-off stock (−)</option>
+            </select>
+          </div>
+
+          <div className={styles.fieldRow}>
+            <label htmlFor="adj-qty" className={styles.fieldLabel}>
+              Quantity ({selectedProduct?.unit})
+            </label>
+            <input
+              id="adj-qty"
+              type="number"
+              min="1"
+              className={styles.fieldInput}
+              value={adjustQty}
+              onChange={(e) => setAdjustQty(e.target.value)}
+            />
+          </div>
+
+          <div className={styles.fieldRow}>
+            <label htmlFor="adj-reason" className={styles.fieldLabel}>
+              Reason
+            </label>
+            <input
+              id="adj-reason"
+              type="text"
+              className={styles.fieldInput}
+              value={adjustReason}
+              onChange={(e) => setAdjustReason(e.target.value)}
+            />
+          </div>
+
+          <div className={styles.fieldRow}>
+            <label htmlFor="adj-notes" className={styles.fieldLabel}>
+              Optional notes
+            </label>
+            <input
+              id="adj-notes"
+              type="text"
+              className={styles.fieldInput}
+              placeholder="e.g. Verified by warehouse supervisor"
+              value={adjustNotes}
+              onChange={(e) => setAdjustNotes(e.target.value)}
+            />
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Register Perishable Expiry Batch Modal */}
+      <Dialog
+        open={batchModalOpen}
+        onClose={() => setBatchModalOpen(false)}
+        title="Register Perishable / Expiry Batch"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setBatchModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={(e) => void handleConfirmBatch(e)}>
+              Save Batch & Add Stock
+            </Button>
+          </>
+        }
+      >
+        <form className={styles.formStack} onSubmit={handleConfirmBatch}>
+          <div className={styles.fieldRow}>
+            <label htmlFor="bat-prod" className={styles.fieldLabel}>
+              Product
+            </label>
+            <select
+              id="bat-prod"
+              className={styles.fieldSelect}
+              value={batchProductId}
+              onChange={(e) => setBatchProductId(e.target.value)}
+            >
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.unit})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.fieldRow}>
+            <label htmlFor="bat-num" className={styles.fieldLabel}>
+              Batch / Lot identifier
+            </label>
+            <input
+              id="bat-num"
+              type="text"
+              className={styles.fieldInput}
+              value={batchNum}
+              onChange={(e) => setBatchNum(e.target.value)}
+            />
+          </div>
+
+          <div className={styles.fieldRow}>
+            <label htmlFor="bat-exp" className={styles.fieldLabel}>
+              Expiry date
+            </label>
+            <input
+              id="bat-exp"
+              type="date"
+              className={styles.fieldInput}
+              value={batchExpiry}
+              onChange={(e) => setBatchExpiry(e.target.value)}
+            />
+          </div>
+
+          <div className={styles.fieldRow}>
+            <label htmlFor="bat-qty" className={styles.fieldLabel}>
+              Received quantity
+            </label>
+            <input
+              id="bat-qty"
+              type="number"
+              min="1"
+              className={styles.fieldInput}
+              value={batchQty}
+              onChange={(e) => setBatchQty(e.target.value)}
+            />
+          </div>
+        </form>
+      </Dialog>
     </div>
   );
-};
+}

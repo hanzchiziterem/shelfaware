@@ -1,69 +1,126 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
-import { Button } from '../../../components/ui/Button';
-import { Input } from '../../../components/ui/Input';
-import { PATHS } from '../../../router/paths';
+import { PATHS } from '@/app/router/paths';
+import { Button } from '@/components/ui/Button';
+import { authApi } from '@/features/auth/services/authApi';
+import styles from './AuthPages.module.css';
 
-export const ForgotPasswordPage: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+export function ForgotPasswordPage() {
+  const [email, setEmail] = useState('adebayo@oluwafoodmart.ng');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [step, setStep] = useState<'request' | 'reset' | 'done'>('request');
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    if (!email.includes('@')) {
+      setError('Enter a valid staff email address.');
+      return;
+    }
+    setError('');
+    await authApi.requestPasswordReset(email);
+    setStep('reset');
+  };
+
+  const handleReset = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setError('');
+    setStep('done');
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-slate-900 tracking-tight text-center">
-          Reset password
+    <div>
+      <div className={styles.pageHeader}>
+        <h2 className={styles.title}>
+          {step === 'request'
+            ? 'Password recovery'
+            : step === 'reset'
+              ? 'Set a new password'
+              : 'Password updated'}
         </h2>
-        <p className="text-xs text-slate-500 text-center mt-1">
-          Enter your registered email address and we'll send you a password recovery link.
+        <p className={styles.subtitle}>
+          {step === 'request'
+            ? 'Simulated recovery flow (no external email is dispatched in demo mode).'
+            : step === 'reset'
+              ? `Enter a new password for ${email}.`
+              : 'Your demo password reset flow is complete.'}
         </p>
       </div>
 
-      {submitted ? (
-        <div className="p-4 rounded-[var(--radius-card)] bg-emerald-50 border border-emerald-200 text-center space-y-3">
-          <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
-          <h3 className="text-sm font-semibold text-emerald-900">Recovery instructions simulated</h3>
-          <p className="text-xs text-emerald-700">
-            If an account exists for {email}, a recovery link has been simulated.
-          </p>
-          <Link to={PATHS.RESET_PASSWORD} className="inline-block text-xs font-semibold text-emerald-800 underline">
-            Proceed to simulate Reset Password screen &rarr;
-          </Link>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Email Address"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="name@business.com"
-            leftIcon={<Mail className="w-4 h-4" />}
-          />
+      {error && <div className={styles.bannerError}>{error}</div>}
 
-          <Button type="submit" className="w-full">
-            Send Reset Link
+      {step === 'request' && (
+        <form className={styles.form} onSubmit={handleRequest}>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="fp-email" className={styles.label}>
+              Staff email address
+            </label>
+            <input
+              id="fp-email"
+              type="email"
+              className={styles.input}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <Button type="submit" size="lg">
+            Continue to reset form
           </Button>
         </form>
       )}
 
-      <div className="border-t border-slate-200 pt-4 text-center">
-        <Link
-          to={PATHS.LOGIN}
-          className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 font-medium"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Back to login
+      {step === 'reset' && (
+        <form className={styles.form} onSubmit={handleReset}>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="fp-new" className={styles.label}>
+              New password
+            </label>
+            <input
+              id="fp-new"
+              type="password"
+              className={styles.input}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="fp-confirm" className={styles.label}>
+              Confirm new password
+            </label>
+            <input
+              id="fp-confirm"
+              type="password"
+              className={styles.input}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+          </div>
+          <Button type="submit" size="lg">
+            Save new password
+          </Button>
+        </form>
+      )}
+
+      {step === 'done' && (
+        <div className={styles.bannerSuccess}>
+          Password recovery completed. Return to the sign-in screen to access your workspace.
+        </div>
+      )}
+
+      <div className={styles.footerSwitch}>
+        <Link to={PATHS.AUTH.LOGIN} className={styles.link}>
+          Back to sign in
         </Link>
       </div>
     </div>
   );
-};
-
+}

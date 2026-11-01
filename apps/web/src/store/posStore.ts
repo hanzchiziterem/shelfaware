@@ -1,251 +1,346 @@
 import { create } from 'zustand';
-import { Product, Customer, PaymentMethod, Sale } from '../types/domain';
-import { posApi } from '../features/pos/services/posApi';
-import { CheckoutPayment } from '../services/api/apiTypes';
-import { calculateChangeDue } from '../utils/currency';
+import { posApi } from '@/features/pos/services/posApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
+import type {
+  OrderFulfillmentType,
+  PaymentMethod,
+  PaymentRecord,
+  Product,
+  Sale,
+} from '@/types/common';
+import {
+  addAmounts,
+  calculateCashChange,
+  calculateDiscountAmount,
+  calculateTaxAmount,
+  multiplyAmount,
+  subtractAmounts,
+} from '@/utils/currency';
+import { isValidSaleQuantity } from '@/utils/validation';
 
-export interface CartItem {
+export interface PosCartItem {
   product: Product;
   quantity: number;
-  unitPrice: number;
   subtotal: number;
 }
 
 interface PosState {
-  cart: CartItem[];
-  selectedCustomer: Customer | null;
-  searchQuery: string;
-  selectedCategory: string;
-  discountType: 'percentage' | 'fixed';
+  cart: PosCartItem[];
+  selectedCustomerId: string;
+  fulfillmentType: OrderFulfillmentType;
+  discountType: 'fixed' | 'percentage';
   discountValue: number;
   paymentMethod: PaymentMethod;
-  amountReceived: number;
-  notes: string;
-  isProcessing: boolean;
-  error: string | null;
+  cashTendered: number;
+  splitCashAmount: number;
+  splitTransferOrCardAmount: number;
+  paymentReference: string;
+  orderNotes: string;
+  isSubmitting: boolean;
   lastCompletedSale: Sale | null;
-  isReceiptModalOpen: boolean;
+  error: string | null;
+  activeIdempotencyKey: string;
 
-  // Actions
-  setSearchQuery: (query: string) => void;
-  setSelectedCategory: (categoryId: string) => void;
-  addToCart: (product: Product, quantity?: number) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  addToCart: (product: Product, increment?: number) => { ok: boolean; message?: string };
+  updateItemQuantity: (productId: string, nextQuantity: number) => { ok: boolean; message?: string };
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
-  setSelectedCustomer: (customer: Customer | null) => void;
-  setDiscount: (type: 'percentage' | 'fixed', value: number) => void;
+  setSelectedCustomerId: (customerId: string) => void;
+  setFulfillmentType: (type: OrderFulfillmentType) => void;
+  setDiscount: (type: 'fixed' | 'percentage', value: number) => void;
   setPaymentMethod: (method: PaymentMethod) => void;
-  setAmountReceived: (amount: number) => void;
-  setNotes: (notes: string) => void;
-  processCheckout: () => Promise<boolean>;
-  openReceiptModal: (sale: Sale) => void;
-  closeReceiptModal: () => void;
-  resetPos: () => void;
+  setCashTendered: (amount: number) => void;
+  setSplitAmounts: (cash: number, other: number) => void;
+  setPaymentReference: (ref: string) => void;
+  setOrderNotes: (notes: string) => void;
+  getTotals: (taxPercentage?: number, enableTax?: boolean) => {
+    subtotal: number;
+    discountAmount: number;
+    taxAmount: number;
+    grandTotal: number;
+    amountTendered: number;
+    changeDue: number;
+  };
+  submitSale: (params: {
+    cashierId: string;
+    cashierName: string;
+    taxPercentage?: number;
+    enableTax?: boolean;
+  }) => Promise<Sale | null>;
+  clearCompletedSale: () => void;
+  clearError: () => void;
+}
 
-  // Computed helpers
-  getSubtotal: () => number;
-  getDiscountAmount: () => number;
-  getGrandTotal: () => number;
-  getChangeDue: () => number;
+function generateIdempotencyKey(): string {
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export const usePosStore = create<PosState>((set, get) => ({
   cart: [],
-  selectedCustomer: null,
-  searchQuery: '',
-  selectedCategory: 'all',
+  selectedCustomerId: 'cust-walkin',
+  fulfillmentType: 'Walk-in',
   discountType: 'fixed',
   discountValue: 0,
   paymentMethod: 'cash',
-  amountReceived: 0,
-  notes: '',
-  isProcessing: false,
-  error: null,
+  cashTendered: 0,
+  splitCashAmount: 0,
+  splitTransferOrCardAmount: 0,
+  paymentReference: '',
+  orderNotes: '',
+  isSubmitting: false,
   lastCompletedSale: null,
-  isReceiptModalOpen: false,
+  error: null,
+  activeIdempotencyKey: generateIdempotencyKey(),
 
-  setSearchQuery: (searchQuery) => set({ searchQuery }),
-  setSelectedCategory: (selectedCategory) => set({ selectedCategory }),
+  addToCart: (product, increment = 1) => {
+    const state = get();
+    const existing = state.cart.find((item) => item.product.id === product.id);
+    const nextQty = existing
+      ? Number((existing.quantity + increment).toFixed(2))
+      : increment;
 
-  addToCart: (product: Product, qty = 1) => {
-    if (product.currentStock <= 0) return;
-    const { cart } = get();
-    const existingIndex = cart.findIndex((item) => item.product.id === product.id);
+    const validation = isValidSaleQuantity(
+      nextQty,
+      product.stockQuantity,
+      product.allowFractional
+    );
+    if (!validation.valid) {
+      set({ error: `${product.name}: ${validation.reason}` });
+      return { ok: false, message: validation.reason };
+    }
 
-    if (existingIndex > -1) {
-      const existing = cart[existingIndex];
-      const newQty = Math.min(product.currentStock, existing.quantity + qty);
-      const updated = [...cart];
-      updated[existingIndex] = {
-        ...existing,
-        quantity: newQty,
-        subtotal: newQty * existing.unitPrice,
-      };
-      set({ cart: updated, error: null });
-    } else {
-      const initialQty = Math.min(product.currentStock, Math.max(1, qty));
-      set({
-        cart: [
-          ...cart,
+    const nextCart = existing
+      ? state.cart.map((item) =>
+          item.product.id === product.id
+            ? {
+                ...item,
+                product,
+                quantity: nextQty,
+                subtotal: multiplyAmount(product.sellingPrice, nextQty),
+              }
+            : item
+        )
+      : [
+          ...state.cart,
           {
             product,
-            quantity: initialQty,
-            unitPrice: product.sellingPrice,
-            subtotal: initialQty * product.sellingPrice,
+            quantity: nextQty,
+            subtotal: multiplyAmount(product.sellingPrice, nextQty),
           },
-        ],
-        error: null,
-      });
-    }
-  },
+        ];
 
-  updateQuantity: (productId: string, quantity: number) => {
-    const { cart } = get();
-    if (quantity <= 0) {
-      get().removeFromCart(productId);
-      return;
-    }
-    const updated = cart.map((item) => {
-      if (item.product.id === productId) {
-        const safeQty = Math.min(item.product.currentStock, quantity);
-        return {
-          ...item,
-          quantity: safeQty,
-          subtotal: safeQty * item.unitPrice,
-        };
-      }
-      return item;
+    set({
+      cart: nextCart,
+      error: null,
+      activeIdempotencyKey: generateIdempotencyKey(),
     });
-    set({ cart: updated });
+    return { ok: true };
   },
 
-  removeFromCart: (productId: string) => {
+  updateItemQuantity: (productId, nextQuantity) => {
+    const state = get();
+    const existing = state.cart.find((item) => item.product.id === productId);
+    if (!existing) return { ok: false, message: 'Item not in cart.' };
+
+    if (nextQuantity <= 0) {
+      get().removeFromCart(productId);
+      return { ok: true };
+    }
+
+    const validation = isValidSaleQuantity(
+      nextQuantity,
+      existing.product.stockQuantity,
+      existing.product.allowFractional
+    );
+    if (!validation.valid) {
+      set({ error: `${existing.product.name}: ${validation.reason}` });
+      return { ok: false, message: validation.reason };
+    }
+
+    set({
+      cart: state.cart.map((item) =>
+        item.product.id === productId
+          ? {
+              ...item,
+              quantity: nextQuantity,
+              subtotal: multiplyAmount(item.product.sellingPrice, nextQuantity),
+            }
+          : item
+      ),
+      error: null,
+      activeIdempotencyKey: generateIdempotencyKey(),
+    });
+    return { ok: true };
+  },
+
+  removeFromCart: (productId) =>
     set((state) => ({
       cart: state.cart.filter((item) => item.product.id !== productId),
-    }));
-  },
+      error: null,
+      activeIdempotencyKey: generateIdempotencyKey(),
+    })),
 
-  clearCart: () => {
+  clearCart: () =>
     set({
       cart: [],
       discountValue: 0,
-      amountReceived: 0,
-      notes: '',
+      cashTendered: 0,
+      splitCashAmount: 0,
+      splitTransferOrCardAmount: 0,
+      paymentReference: '',
+      orderNotes: '',
       error: null,
-    });
-  },
+      activeIdempotencyKey: generateIdempotencyKey(),
+    }),
 
-  setSelectedCustomer: (customer) => set({ selectedCustomer: customer }),
-  setDiscount: (discountType, discountValue) => set({ discountType, discountValue }),
+  setSelectedCustomerId: (selectedCustomerId) => set({ selectedCustomerId }),
+  setFulfillmentType: (fulfillmentType) => set({ fulfillmentType }),
+  setDiscount: (discountType, discountValue) =>
+    set({ discountType, discountValue: Math.max(0, discountValue) }),
   setPaymentMethod: (paymentMethod) => set({ paymentMethod }),
-  setAmountReceived: (amountReceived) => set({ amountReceived }),
-  setNotes: (notes) => set({ notes }),
+  setCashTendered: (cashTendered) => set({ cashTendered: Math.max(0, cashTendered) }),
+  setSplitAmounts: (splitCashAmount, splitTransferOrCardAmount) =>
+    set({
+      splitCashAmount: Math.max(0, splitCashAmount),
+      splitTransferOrCardAmount: Math.max(0, splitTransferOrCardAmount),
+    }),
+  setPaymentReference: (paymentReference) => set({ paymentReference }),
+  setOrderNotes: (orderNotes) => set({ orderNotes }),
 
-  getSubtotal: () => {
-    return get().cart.reduce((acc, item) => acc + item.subtotal, 0);
-  },
+  getTotals: (taxPercentage = 0, enableTax = false) => {
+    const state = get();
+    const subtotal = state.cart.reduce((acc, item) => addAmounts(acc, item.subtotal), 0);
+    const discountAmount = calculateDiscountAmount(
+      subtotal,
+      state.discountType,
+      state.discountValue
+    );
+    const afterDiscount = subtractAmounts(subtotal, discountAmount);
+    const taxAmount = enableTax ? calculateTaxAmount(afterDiscount, taxPercentage) : 0;
+    const grandTotal = addAmounts(afterDiscount, taxAmount);
 
-  getDiscountAmount: () => {
-    const subtotal = get().getSubtotal();
-    const { discountType, discountValue } = get();
-    if (!discountValue || discountValue <= 0) return 0;
-    if (discountType === 'percentage') {
-      return (subtotal * Math.min(100, discountValue)) / 100;
-    }
-    return Math.min(subtotal, discountValue);
-  },
-
-  getGrandTotal: () => {
-    const subtotal = get().getSubtotal();
-    const discount = get().getDiscountAmount();
-    return Math.max(0, subtotal - discount);
-  },
-
-  getChangeDue: () => {
-    const total = get().getGrandTotal();
-    const received = get().amountReceived;
-    if (get().paymentMethod !== 'cash') return 0;
-    return calculateChangeDue(total, received);
-  },
-
-  processCheckout: async () => {
-    const { cart, paymentMethod, amountReceived, notes, selectedCustomer, discountType, discountValue } = get();
-    const grandTotal = get().getGrandTotal();
-
-    if (cart.length === 0) {
-      set({ error: 'Cart is empty. Add products before checkout.' });
-      return false;
+    let amountTendered = grandTotal;
+    if (state.paymentMethod === 'cash') {
+      amountTendered = state.cashTendered > 0 ? state.cashTendered : grandTotal;
+    } else if (state.paymentMethod === 'split') {
+      amountTendered = addAmounts(state.splitCashAmount, state.splitTransferOrCardAmount);
     }
 
-    if (paymentMethod === 'cash' && amountReceived < grandTotal) {
-      set({ error: `Amount received (₦${amountReceived.toLocaleString()}) is less than total (₦${grandTotal.toLocaleString()}).` });
-      return false;
+    const changeDue =
+      state.paymentMethod === 'cash' ? calculateCashChange(grandTotal, amountTendered) : 0;
+
+    return {
+      subtotal,
+      discountAmount,
+      taxAmount,
+      grandTotal,
+      amountTendered,
+      changeDue,
+    };
+  },
+
+  submitSale: async ({ cashierId, cashierName, taxPercentage = 0, enableTax = false }) => {
+    const state = get();
+    if (state.isSubmitting) return null;
+
+    if (state.cart.length === 0) {
+      set({ error: 'Cannot complete checkout with an empty cart.' });
+      return null;
     }
 
-    try {
-      set({ isProcessing: true, error: null });
+    const totals = state.getTotals(taxPercentage, enableTax);
 
-      const payments: CheckoutPayment[] = [
+    let payments: PaymentRecord[] = [];
+    if (state.paymentMethod === 'cash') {
+      const cashAmt = state.cashTendered > 0 ? state.cashTendered : totals.grandTotal;
+      if (cashAmt < totals.grandTotal) {
+        set({
+          error: `Cash received (₦${cashAmt.toLocaleString()}) is less than the grand total (₦${totals.grandTotal.toLocaleString()}).`,
+        });
+        return null;
+      }
+      payments = [{ method: 'cash', amount: cashAmt }];
+    } else if (state.paymentMethod === 'bank_transfer') {
+      payments = [
         {
-          method: paymentMethod === 'split' ? 'cash' : (paymentMethod as 'cash' | 'card' | 'bank_transfer'),
-          amount: grandTotal,
+          method: 'bank_transfer',
+          amount: totals.grandTotal,
+          reference: state.paymentReference || `NIP-${Date.now().toString().slice(-6)}`,
         },
       ];
+    } else if (state.paymentMethod === 'card') {
+      payments = [
+        {
+          method: 'card',
+          amount: totals.grandTotal,
+          reference: state.paymentReference || `POS-${Date.now().toString().slice(-6)}`,
+        },
+      ];
+    } else if (state.paymentMethod === 'split') {
+      const combined = addAmounts(state.splitCashAmount, state.splitTransferOrCardAmount);
+      if (combined < totals.grandTotal) {
+        set({
+          error: `Split payment total (₦${combined.toLocaleString()}) must cover grand total (₦${totals.grandTotal.toLocaleString()}).`,
+        });
+        return null;
+      }
+      payments = [
+        { method: 'cash', amount: state.splitCashAmount },
+        {
+          method: 'bank_transfer',
+          amount: state.splitTransferOrCardAmount,
+          reference: state.paymentReference || `SPL-${Date.now().toString().slice(-6)}`,
+        },
+      ];
+    }
 
-      const idempotencyKey = `pos-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-
-      const completedSale = await posApi.processCheckout({
-        customerId: selectedCustomer?.id,
-        customerName: selectedCustomer?.name,
-        items: cart.map((item) => ({
+    set({ isSubmitting: true, error: null });
+    try {
+      const res = await posApi.submitCheckout({
+        customerId: state.selectedCustomerId,
+        fulfillmentType: state.fulfillmentType,
+        cashierId,
+        cashierName,
+        items: state.cart.map((item) => ({
           productId: item.product.id,
           quantity: item.quantity,
-          unitPrice: item.unitPrice,
         })),
-        discount: discountValue > 0 ? { type: discountType, value: discountValue } : undefined,
+        discount:
+          state.discountValue > 0
+            ? { type: state.discountType, value: state.discountValue }
+            : undefined,
+        paymentMethod: state.paymentMethod,
         payments,
-        amountReceived: paymentMethod === 'cash' ? amountReceived : grandTotal,
-        changeDue: paymentMethod === 'cash' ? calculateChangeDue(grandTotal, amountReceived) : 0,
-        notes,
-        idempotencyKey,
+        notes: state.orderNotes || undefined,
+        idempotencyKey: state.activeIdempotencyKey,
       });
 
-      // Clear cart on success & open receipt preview modal
+      // Clear cart only after authoritative checkout success
       set({
         cart: [],
-        amountReceived: 0,
         discountValue: 0,
-        notes: '',
-        isProcessing: false,
-        lastCompletedSale: completedSale,
-        isReceiptModalOpen: true,
+        cashTendered: 0,
+        splitCashAmount: 0,
+        splitTransferOrCardAmount: 0,
+        paymentReference: '',
+        orderNotes: '',
+        isSubmitting: false,
+        lastCompletedSale: res.data,
+        error: null,
+        activeIdempotencyKey: generateIdempotencyKey(),
       });
-
-      return true;
-    } catch (err: any) {
+      return res.data;
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      // Preserve cart contents when checkout fails
       set({
-        isProcessing: false,
-        error: err.message || 'Checkout failed. Please try again.',
+        isSubmitting: false,
+        error: normalized.message,
       });
-      return false;
+      return null;
     }
   },
 
-  openReceiptModal: (sale: Sale) => set({ lastCompletedSale: sale, isReceiptModalOpen: true }),
-  closeReceiptModal: () => set({ isReceiptModalOpen: false }),
-
-  resetPos: () => {
-    set({
-      cart: [],
-      selectedCustomer: null,
-      discountValue: 0,
-      amountReceived: 0,
-      notes: '',
-      error: null,
-      isReceiptModalOpen: false,
-      lastCompletedSale: null,
-    });
-  },
+  clearCompletedSale: () => set({ lastCompletedSale: null }),
+  clearError: () => set({ error: null }),
 }));
-

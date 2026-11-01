@@ -1,85 +1,124 @@
-import React, { useEffect } from 'react';
-import { Bell, CheckCheck, AlertTriangle, ClockAlert, ShoppingCart, Info } from 'lucide-react';
-import { useNotificationStore } from '../../../store/notificationStore';
-import { PageHeader } from '../../../components/layout/PageHeader';
-import { Button } from '../../../components/ui/Button';
-import { formatRelativeTime } from '../../../utils/dates';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/Button';
+import { StatusIndicator } from '@/components/ui/StatusIndicator';
+import { useNotificationStore } from '@/store/notificationStore';
+import styles from '@/styles/SharedPages.module.css';
+import { formatFullDateTime } from '@/utils/dates';
 
-export const NotificationsPage: React.FC = () => {
-  const { notifications, fetchNotifications, markAsRead, markAllAsRead } = useNotificationStore();
+export function NotificationsPage() {
+  const navigate = useNavigate();
+  const notifications = useNotificationStore((s) => s.notifications);
+  const fetchNotifications = useNotificationStore((s) => s.fetchNotifications);
+  const markAsRead = useNotificationStore((s) => s.markAsRead);
+  const markAllAsRead = useNotificationStore((s) => s.markAllAsRead);
+
+  const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
   useEffect(() => {
-    fetchNotifications();
+    void fetchNotifications();
   }, [fetchNotifications]);
 
-  const getIcon = (type: string) => {
-    switch (type) {
-      case 'low_stock':
-        return <AlertTriangle className="w-4 h-4 text-amber-500" />;
-      case 'expiring_stock':
-        return <ClockAlert className="w-4 h-4 text-rose-500" />;
-      case 'new_sale':
-        return <ShoppingCart className="w-4 h-4 text-emerald-500" />;
-      default:
-        return <Info className="w-4 h-4 text-blue-500" />;
-    }
-  };
+  const filtered = notifications.filter((n) => (filter === 'unread' ? !n.isRead : true));
 
   return (
-    <div className="space-y-4 max-w-4xl">
-      <PageHeader
-        title="Notification Center"
-        description="Alerts for low inventory, expiring foodstuff batches, and system events."
-        actions={
+    <div className={styles.pageWrap}>
+      <div className={styles.headerRow}>
+        <div>
+          <h1 className={styles.pageTitle}>Notifications</h1>
+          <p className={styles.pageSubtitle}>
+            Stock alerts, perishable batch expiry warnings, and completed sale events.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
           <Button
+            variant={filter === 'all' ? 'primary' : 'secondary'}
             size="sm"
-            variant="outline"
-            onClick={markAllAsRead}
-            leftIcon={<CheckCheck className="w-4 h-4" />}
+            onClick={() => setFilter('all')}
           >
+            All ({notifications.length})
+          </Button>
+          <Button
+            variant={filter === 'unread' ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setFilter('unread')}
+          >
+            Unread ({notifications.filter((n) => !n.isRead).length})
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => void markAllAsRead()}>
             Mark all as read
           </Button>
-        }
-      />
+        </div>
+      </div>
 
-      <div className="space-y-2">
-        {notifications.map((n) => (
-          <div
-            key={n.id}
-            onClick={() => !n.isRead && markAsRead(n.id)}
-            className={`p-3.5 rounded-[var(--radius-card)] border transition-all flex items-start gap-3 cursor-pointer ${
-              n.isRead
-                ? 'bg-white border-slate-200 opacity-75'
-                : 'bg-emerald-50/20 border-emerald-200 shadow-subtle'
-            }`}
-          >
-            <div className="p-2 rounded-md bg-white border border-slate-200 shrink-0">
-              {getIcon(n.type)}
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-900">{n.title}</h4>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  {formatRelativeTime(n.createdAt)}
-                </span>
-              </div>
-              <p className="text-xs text-slate-600 mt-0.5">{n.message}</p>
-            </div>
-
-            {!n.isRead && (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-1" />
-            )}
-          </div>
-        ))}
-
-        {notifications.length === 0 && (
-          <div className="py-12 text-center text-slate-400 bg-white border border-dashed border-slate-200 rounded-[var(--radius-card)]">
-            <Bell className="w-6 h-6 mx-auto mb-2 opacity-40" />
-            <p className="text-xs">No notifications at this time.</p>
-          </div>
-        )}
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Alert & Details</th>
+              <th>Timestamp</th>
+              <th style={{ textAlign: 'right' }}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((notif) => (
+              <tr
+                key={notif.id}
+                style={{
+                  backgroundColor: !notif.isRead ? 'var(--color-surface-muted)' : undefined,
+                }}
+              >
+                <td style={{ width: '110px' }}>
+                  {notif.severity === 'critical' && (
+                    <StatusIndicator tone="danger" label="Critical" appearance="tag" />
+                  )}
+                  {notif.severity === 'warning' && (
+                    <StatusIndicator tone="warning" label="Warning" appearance="tag" />
+                  )}
+                  {notif.severity === 'success' && (
+                    <StatusIndicator tone="success" label="Sale" appearance="tag" />
+                  )}
+                  {notif.severity === 'info' && (
+                    <StatusIndicator tone="neutral" label="Info" appearance="tag" />
+                  )}
+                </td>
+                <td style={{ whiteSpace: 'normal', maxWidth: '580px' }}>
+                  <div style={{ fontWeight: notif.isRead ? 500 : 700 }}>{notif.title}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                    {notif.message}
+                  </div>
+                </td>
+                <td className="tabular-nums" style={{ color: 'var(--color-text-muted)' }}>
+                  {formatFullDateTime(notif.createdAt)}
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'inline-flex', gap: '8px' }}>
+                    {notif.actionPath && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => navigate(notif.actionPath!)}
+                      >
+                        Inspect
+                      </Button>
+                    )}
+                    {!notif.isRead && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void markAsRead(notif.id)}
+                      >
+                        Mark read
+                      </Button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
-};
+}

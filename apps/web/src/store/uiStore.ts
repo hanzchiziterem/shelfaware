@@ -1,22 +1,47 @@
 import { create } from 'zustand';
 
+export interface ToastMessage {
+  id: string;
+  title: string;
+  description?: string;
+  tone: 'success' | 'error' | 'warning' | 'info';
+}
+
 interface UiState {
-  isSidebarCollapsed: boolean;
-  isMobileSidebarOpen: boolean;
+  sidebarCollapsed: boolean;
+  mobileDrawerOpen: boolean;
+  quickSearchOpen: boolean;
+  toasts: ToastMessage[];
   toggleSidebar: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
-  setMobileSidebarOpen: (open: boolean) => void;
-  isQuickSearchOpen: boolean;
+  setMobileDrawerOpen: (open: boolean) => void;
   setQuickSearchOpen: (open: boolean) => void;
+  pushToast: (toast: Omit<ToastMessage, 'id'>) => void;
+  dismissToast: (id: string) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
-  isSidebarCollapsed: false,
-  isMobileSidebarOpen: false,
-  toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
-  setSidebarCollapsed: (collapsed) => set({ isSidebarCollapsed: collapsed }),
-  setMobileSidebarOpen: (open) => set({ isMobileSidebarOpen: open }),
-  isQuickSearchOpen: false,
-  setQuickSearchOpen: (open) => set({ isQuickSearchOpen: open }),
+  sidebarCollapsed: false,
+  mobileDrawerOpen: false,
+  quickSearchOpen: false,
+  toasts: [],
+  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  setMobileDrawerOpen: (open) => set({ mobileDrawerOpen: open }),
+  setQuickSearchOpen: (open) => set({ quickSearchOpen: open }),
+  pushToast: (toast) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    set((state) => ({
+      toasts: [...state.toasts, { ...toast, id }],
+    }));
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id),
+        }));
+      }, 4200);
+    }
+  },
+  dismissToast: (id) =>
+    set((state) => ({
+      toasts: state.toasts.filter((t) => t.id !== id),
+    })),
 }));
-

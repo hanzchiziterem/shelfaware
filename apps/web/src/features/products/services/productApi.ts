@@ -1,120 +1,168 @@
-import { apiClient } from '../../../services/api/axiosInstance';
-import { API_CONFIG } from '../../../services/api/apiConfig';
-import { Product, ProductCategory } from '../../../types/domain';
-import { mockStorage } from '../../../mocks/mockStorage';
-import { MOCK_CATEGORIES } from '../../../mocks/products';
-import { CreateProductPayload, ProductFilterParams } from '../../../services/api/apiTypes';
+import { loadMockDb, saveMockDb } from '@/mocks/mockDb';
+import { API_CONFIG } from '@/services/api/apiConfig';
+import { API_ENDPOINTS, type ApiResponse } from '@/services/api/apiTypes';
+import { axiosInstance } from '@/services/api/axiosInstance';
+import type { Product, ProductCategory, UnitOfMeasure } from '@/types/common';
+
+export interface CreateOrUpdateProductPayload {
+  name: string;
+  sku: string;
+  barcode: string;
+  categoryId: string;
+  description: string;
+  unit: UnitOfMeasure;
+  allowFractional: boolean;
+  costPrice: number;
+  sellingPrice: number;
+  stockQuantity: number;
+  minStockThreshold: number;
+  supplierId?: string;
+  trackExpiry: boolean;
+  expiryDate?: string;
+  batchNumber?: string;
+  status?: 'active' | 'draft' | 'archived';
+}
 
 export const productApi = {
-  async getProducts(params?: ProductFilterParams): Promise<Product[]> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 150));
-      let items = mockStorage.getProducts();
+  async getProducts(): Promise<ApiResponse<{ products: Product[]; categories: ProductCategory[] }>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.get<
+        ApiResponse<{ products: Product[]; categories: ProductCategory[] }>
+      >(API_ENDPOINTS.PRODUCTS.BASE);
+      return data;
+    }
 
-      if (params?.search) {
-        const q = params.search.toLowerCase();
-        items = items.filter(
-          (p) =>
-            p.name.toLowerCase().includes(q) ||
-            p.sku.toLowerCase().includes(q) ||
-            p.barcode?.includes(q)
-        );
+    const db = loadMockDb();
+    return {
+      success: true,
+      data: {
+        products: [...db.products],
+        categories: [...db.categories],
+      },
+    };
+  },
+
+  async createProduct(payload: CreateOrUpdateProductPayload): Promise<ApiResponse<Product>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<Product>>(
+        API_ENDPOINTS.PRODUCTS.BASE,
+        payload
+      );
+      return data;
+    }
+
+    const db = loadMockDb();
+    const category = db.categories.find((c) => c.id === payload.categoryId);
+    const supplier = db.suppliers.find((s) => s.id === payload.supplierId);
+
+    const newProduct: Product = {
+      id: `prod-${Date.now().toString().slice(-5)}`,
+      name: payload.name.trim(),
+      sku: payload.sku.trim().toUpperCase(),
+      barcode: payload.barcode.trim() || `6151100${Math.floor(100000 + Math.random() * 900000)}`,
+      categoryId: payload.categoryId,
+      categoryName: category?.name || 'Grains & Staples',
+      description: payload.description.trim(),
+      unit: payload.unit,
+      allowFractional: payload.allowFractional,
+      costPrice: Number(payload.costPrice),
+      sellingPrice: Number(payload.sellingPrice),
+      stockQuantity: Number(payload.stockQuantity),
+      processedCount: 0,
+      minStockThreshold: Number(payload.minStockThreshold),
+      supplierId: payload.supplierId,
+      supplierName: supplier?.name,
+      trackExpiry: payload.trackExpiry,
+      expiryDate: payload.trackExpiry ? payload.expiryDate : undefined,
+      batchNumber: payload.trackExpiry ? payload.batchNumber : undefined,
+      status: payload.status || 'active',
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.products.unshift(newProduct);
+
+    if (newProduct.trackExpiry && newProduct.expiryDate && newProduct.stockQuantity > 0) {
+      db.batches.unshift({
+        id: `bat-${Date.now().toString().slice(-4)}`,
+        productId: newProduct.id,
+        productName: newProduct.name,
+        sku: newProduct.sku,
+        batchNumber: newProduct.batchNumber || `BATCH-${newProduct.sku}`,
+        expiryDate: newProduct.expiryDate,
+        receivedQuantity: newProduct.stockQuantity,
+        remainingQuantity: newProduct.stockQuantity,
+        unitCost: newProduct.costPrice,
+        unit: newProduct.unit,
+        receivedAt: new Date().toISOString(),
+      });
+    }
+
+    saveMockDb(db);
+    return {
+      success: true,
+      data: newProduct,
+    };
+  },
+
+  async updateProduct(
+    productId: string,
+    payload: Partial<CreateOrUpdateProductPayload>
+  ): Promise<ApiResponse<Product>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.patch<ApiResponse<Product>>(
+        `${API_ENDPOINTS.PRODUCTS.BASE}/${productId}`,
+        payload
+      );
+      return data;
+    }
+
+    const db = loadMockDb();
+    const index = db.products.findIndex((p) => p.id === productId);
+    if (index === -1) {
+      throw new Error('Product not found.');
+    }
+
+    const current = db.products[index];
+    const category = payload.categoryId
+      ? db.categories.find((c) => c.id === payload.categoryId)
+      : undefined;
+
+    const updated: Product = {
+      ...current,
+      ...payload,
+      categoryName: category ? category.name : current.categoryName,
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.products[index] = updated;
+    saveMockDb(db);
+
+    return {
+      success: true,
+      data: updated,
+    };
+  },
+
+  async archiveProducts(productIds: string[]): Promise<ApiResponse<{ archivedIds: string[] }>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<{ archivedIds: string[] }>>(
+        `${API_ENDPOINTS.PRODUCTS.BASE}/archive`,
+        { productIds }
+      );
+      return data;
+    }
+
+    const db = loadMockDb();
+    for (const p of db.products) {
+      if (productIds.includes(p.id)) {
+        p.status = 'archived';
+        p.updatedAt = new Date().toISOString();
       }
-      if (params?.categoryId) {
-        items = items.filter((p) => p.categoryId === params.categoryId);
-      }
-      if (params?.stockStatus) {
-        if (params.stockStatus === 'low') {
-          items = items.filter((p) => p.currentStock > 0 && p.currentStock <= p.minStockThreshold);
-        } else if (params.stockStatus === 'out') {
-          items = items.filter((p) => p.currentStock <= 0);
-        } else if (params.stockStatus === 'in_stock') {
-          items = items.filter((p) => p.currentStock > p.minStockThreshold);
-        }
-      }
-      return items;
     }
-    const res = await apiClient.get<Product[]>('/products', { params });
-    return res.data;
-  },
-
-  async getCategories(): Promise<ProductCategory[]> {
-    if (API_CONFIG.useMockApi) {
-      return MOCK_CATEGORIES;
-    }
-    const res = await apiClient.get<ProductCategory[]>('/categories');
-    return res.data;
-  },
-
-  async createProduct(payload: CreateProductPayload): Promise<Product> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 200));
-      const products = mockStorage.getProducts();
-      const newProduct: Product = {
-        id: `prod-${Date.now()}`,
-        name: payload.name,
-        sku: payload.sku,
-        barcode: payload.barcode,
-        categoryId: payload.categoryId,
-        categoryName: payload.categoryName,
-        description: payload.description,
-        unit: payload.unit as any,
-        costPrice: Number(payload.costPrice),
-        sellingPrice: Number(payload.sellingPrice),
-        currentStock: Number(payload.currentStock),
-        minStockThreshold: Number(payload.minStockThreshold),
-        supplierId: payload.supplierId,
-        trackExpiry: payload.trackExpiry,
-        expiryDate: payload.expiryDate,
-        batchNumber: payload.batchNumber,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      products.unshift(newProduct);
-      mockStorage.saveProducts(products);
-      return newProduct;
-    }
-    const res = await apiClient.post<Product>('/products', payload);
-    return res.data;
-  },
-
-  async updateProduct(id: string, payload: Partial<Product>): Promise<Product> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 150));
-      const products = mockStorage.getProducts();
-      const idx = products.findIndex((p) => p.id === id);
-      if (idx === -1) throw new Error('Product not found');
-      const updated = {
-        ...products[idx],
-        ...payload,
-        updatedAt: new Date().toISOString(),
-      };
-      products[idx] = updated;
-      mockStorage.saveProducts(products);
-      return updated;
-    }
-    const res = await apiClient.patch<Product>(`/products/${id}`, payload);
-    return res.data;
-  },
-
-  async toggleProductStatus(id: string): Promise<Product> {
-    const products = mockStorage.getProducts();
-    const item = products.find((p) => p.id === id);
-    if (!item) throw new Error('Product not found');
-    return this.updateProduct(id, { isActive: !item.isActive });
-  },
-
-  /**
-   * Endpoint: DELETE /api/v1/products/:id
-   */
-  async deleteProduct(id: string): Promise<boolean> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 100));
-      return mockStorage.deleteProduct(id);
-    }
-    await apiClient.delete(`/products/${id}`);
-    return true;
+    saveMockDb(db);
+    return {
+      success: true,
+      data: { archivedIds: productIds },
+    };
   },
 };
-

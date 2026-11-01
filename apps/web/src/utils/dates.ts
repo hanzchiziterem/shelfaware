@@ -1,57 +1,45 @@
 /**
- * Date formatting utilities for enterprise reporting and POS receipts.
+ * Date formatting and expiry window calculation utilities.
  */
 
-export function formatDate(
-  dateInput: string | number | Date | null | undefined,
-  includeTime: boolean = false
-): string {
-  if (!dateInput) return '—';
-  const d = new Date(dateInput);
-  if (isNaN(d.getTime())) return '—';
+export function formatShortDate(isoDate: string): string {
+  if (!isoDate) return '—';
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+  });
+}
 
-  const day = d.toLocaleDateString('en-GB', {
+export function formatFullDateTime(isoDate: string): string {
+  if (!isoDate) return '—';
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return date.toLocaleDateString('en-NG', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  });
-
-  if (!includeTime) return day;
-
-  const time = d.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: true,
   });
-
-  return `${day}, ${time}`;
 }
 
-export function formatRelativeTime(dateInput: string | number | Date): string {
-  const d = new Date(dateInput);
-  if (isNaN(d.getTime())) return '';
-
-  const now = new Date();
-  const diffInSeconds = Math.floor((now.getTime() - d.getTime()) / 1000);
-
-  if (diffInSeconds < 60) return 'Just now';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-
-  return formatDate(d, false);
+export function getDaysUntilExpiry(expiryDate: string, referenceDate: Date = new Date()): number {
+  const target = new Date(expiryDate);
+  if (Number.isNaN(target.getTime())) return 999;
+  const diffMs = target.getTime() - referenceDate.getTime();
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
-export function isExpiringSoon(expiryDate: string | Date, daysThreshold: number = 30): boolean {
-  if (!expiryDate) return false;
-  const expiry = new Date(expiryDate).getTime();
-  const now = new Date().getTime();
-  const diffDays = (expiry - now) / (1000 * 60 * 60 * 24);
-  return diffDays > 0 && diffDays <= daysThreshold;
+export function getExpiryStatus(
+  expiryDate?: string,
+  warningDays: number = 30,
+  referenceDate: Date = new Date()
+): 'expired' | 'expiring_soon' | 'healthy' | 'untracked' {
+  if (!expiryDate) return 'untracked';
+  const days = getDaysUntilExpiry(expiryDate, referenceDate);
+  if (days <= 0) return 'expired';
+  if (days <= warningDays) return 'expiring_soon';
+  return 'healthy';
 }
-
-export function isExpired(expiryDate: string | Date): boolean {
-  if (!expiryDate) return false;
-  return new Date(expiryDate).getTime() < new Date().getTime();
-}
-

@@ -1,49 +1,74 @@
 import { create } from 'zustand';
-import { Supplier } from '../types/domain';
-import { supplierApi } from '../features/suppliers/services/supplierApi';
+import {
+  supplierApi,
+  type CreateSupplierPayload,
+} from '@/features/suppliers/services/supplierApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
+import type { Supplier } from '@/types/common';
 
 interface SupplierState {
   suppliers: Supplier[];
-  isLoading: boolean;
-  isCreateModalOpen: boolean;
   selectedSupplier: Supplier | null;
-
-  fetchSuppliers: () => Promise<void>;
-  createSupplier: (data: Omit<Supplier, 'id' | 'totalPurchases' | 'balancePayable' | 'createdAt'>) => Promise<boolean>;
+  isLoading: boolean;
+  error: string | null;
   setSelectedSupplier: (supplier: Supplier | null) => void;
-  setCreateModalOpen: (open: boolean) => void;
+  fetchSuppliers: () => Promise<void>;
+  createSupplier: (payload: CreateSupplierPayload) => Promise<Supplier | null>;
+  updateSupplier: (
+    supplierId: string,
+    payload: Partial<CreateSupplierPayload> & { status?: 'active' | 'inactive' }
+  ) => Promise<boolean>;
 }
 
 export const useSupplierStore = create<SupplierState>((set) => ({
   suppliers: [],
-  isLoading: false,
-  isCreateModalOpen: false,
   selectedSupplier: null,
+  isLoading: false,
+  error: null,
+
+  setSelectedSupplier: (selectedSupplier) => set({ selectedSupplier }),
 
   fetchSuppliers: async () => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
-      const suppliers = await supplierApi.getSuppliers();
-      set({ suppliers, isLoading: false });
-    } catch {
-      set({ isLoading: false });
+      const res = await supplierApi.getSuppliers();
+      set({ suppliers: res.data, isLoading: false });
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message, isLoading: false });
     }
   },
 
-  createSupplier: async (data) => {
+  createSupplier: async (payload) => {
+    set({ error: null });
     try {
-      const created = await supplierApi.createSupplier(data);
+      const res = await supplierApi.createSupplier(payload);
       set((state) => ({
-        suppliers: [created, ...state.suppliers],
-        isCreateModalOpen: false,
+        suppliers: [res.data, ...state.suppliers],
+        selectedSupplier: res.data,
+      }));
+      return res.data;
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
+      return null;
+    }
+  },
+
+  updateSupplier: async (supplierId, payload) => {
+    set({ error: null });
+    try {
+      const res = await supplierApi.updateSupplier(supplierId, payload);
+      set((state) => ({
+        suppliers: state.suppliers.map((s) => (s.id === supplierId ? res.data : s)),
+        selectedSupplier:
+          state.selectedSupplier?.id === supplierId ? res.data : state.selectedSupplier,
       }));
       return true;
-    } catch {
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
       return false;
     }
   },
-
-  setSelectedSupplier: (supplier) => set({ selectedSupplier: supplier }),
-  setCreateModalOpen: (open) => set({ isCreateModalOpen: open }),
 }));
-

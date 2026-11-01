@@ -1,132 +1,120 @@
 import { create } from 'zustand';
-import { Product, ProductCategory } from '../types/domain';
-import { productApi } from '../features/products/services/productApi';
-import { CreateProductPayload, ProductFilterParams } from '../services/api/apiTypes';
-import { normalizeApiError } from '../services/api/apiErrors';
+import {
+  productApi,
+  type CreateOrUpdateProductPayload,
+} from '@/features/products/services/productApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
+import type { Product, ProductCategory, StockStatus } from '@/types/common';
 
 interface ProductState {
   products: Product[];
   categories: ProductCategory[];
+  searchQuery: string;
+  selectedCategoryId: string;
+  selectedStockStatus: 'all' | StockStatus;
+  selectedLifecycleTab: 'all' | 'active' | 'draft' | 'archived';
+  selectedProduct: Product | null;
   isLoading: boolean;
   error: string | null;
-  filters: ProductFilterParams;
-  selectedProduct: Product | null;
-  isCreateModalOpen: boolean;
-  isDetailDrawerOpen: boolean;
-
-  fetchProducts: () => Promise<void>;
-  fetchCategories: () => Promise<void>;
-  setFilters: (filters: Partial<ProductFilterParams>) => void;
-  createProduct: (payload: CreateProductPayload) => Promise<boolean>;
-  updateProduct: (id: string, payload: Partial<Product>) => Promise<boolean>;
-  deleteProduct: (id: string) => Promise<boolean>;
-  toggleStatus: (id: string) => Promise<void>;
+  setSearchQuery: (q: string) => void;
+  setSelectedCategoryId: (categoryId: string) => void;
+  setSelectedStockStatus: (status: 'all' | StockStatus) => void;
+  setSelectedLifecycleTab: (tab: 'all' | 'active' | 'draft' | 'archived') => void;
   setSelectedProduct: (product: Product | null) => void;
-  setCreateModalOpen: (open: boolean) => void;
-  setDetailDrawerOpen: (open: boolean) => void;
+  fetchProducts: () => Promise<void>;
+  createProduct: (payload: CreateOrUpdateProductPayload) => Promise<Product | null>;
+  updateProduct: (
+    productId: string,
+    payload: Partial<CreateOrUpdateProductPayload>
+  ) => Promise<Product | null>;
+  archiveProducts: (productIds: string[]) => Promise<boolean>;
 }
 
 export const useProductStore = create<ProductState>((set, get) => ({
   products: [],
   categories: [],
+  searchQuery: '',
+  selectedCategoryId: 'all',
+  selectedStockStatus: 'all',
+  selectedLifecycleTab: 'all',
+  selectedProduct: null,
   isLoading: false,
   error: null,
-  filters: {
-    search: '',
-    categoryId: 'all',
-    stockStatus: 'all',
-  },
-  selectedProduct: null,
-  isCreateModalOpen: false,
-  isDetailDrawerOpen: false,
+
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  setSelectedCategoryId: (selectedCategoryId) => set({ selectedCategoryId }),
+  setSelectedStockStatus: (selectedStockStatus) => set({ selectedStockStatus }),
+  setSelectedLifecycleTab: (selectedLifecycleTab) => set({ selectedLifecycleTab }),
+  setSelectedProduct: (selectedProduct) => set({ selectedProduct }),
 
   fetchProducts: async () => {
+    set({ isLoading: true, error: null });
     try {
-      set({ isLoading: true, error: null });
-      const products = await productApi.getProducts(get().filters);
-      set({ products, isLoading: false });
-    } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
-    }
-  },
+      const res = await productApi.getProducts();
+      const currentSelected = get().selectedProduct;
+      const updatedSelected = currentSelected
+        ? res.data.products.find((p) => p.id === currentSelected.id) || res.data.products[0] || null
+        : res.data.products[0] || null;
 
-  fetchCategories: async () => {
-    try {
-      const categories = await productApi.getCategories();
-      set({ categories });
+      set({
+        products: res.data.products,
+        categories: res.data.categories,
+        selectedProduct: updatedSelected,
+        isLoading: false,
+      });
     } catch (err) {
-      console.error('Fetch categories error:', err);
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message, isLoading: false });
     }
-  },
-
-  setFilters: (filters) => {
-    set((state) => ({
-      filters: { ...state.filters, ...filters },
-    }));
-    get().fetchProducts();
   },
 
   createProduct: async (payload) => {
+    set({ error: null });
     try {
-      set({ isLoading: true, error: null });
-      const newProd = await productApi.createProduct(payload);
+      const res = await productApi.createProduct(payload);
       set((state) => ({
-        products: [newProd, ...state.products],
-        isLoading: false,
-        isCreateModalOpen: false,
+        products: [res.data, ...state.products],
+        selectedProduct: res.data,
+      }));
+      return res.data;
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
+      return null;
+    }
+  },
+
+  updateProduct: async (productId, payload) => {
+    set({ error: null });
+    try {
+      const res = await productApi.updateProduct(productId, payload);
+      set((state) => ({
+        products: state.products.map((p) => (p.id === productId ? res.data : p)),
+        selectedProduct:
+          state.selectedProduct?.id === productId ? res.data : state.selectedProduct,
+      }));
+      return res.data;
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
+      return null;
+    }
+  },
+
+  archiveProducts: async (productIds) => {
+    set({ error: null });
+    try {
+      await productApi.archiveProducts(productIds);
+      set((state) => ({
+        products: state.products.map((p) =>
+          productIds.includes(p.id) ? { ...p, status: 'archived' } : p
+        ),
       }));
       return true;
     } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
       return false;
     }
   },
-
-  updateProduct: async (id, payload) => {
-    try {
-      set({ isLoading: true, error: null });
-      const updated = await productApi.updateProduct(id, payload);
-      set((state) => ({
-        products: state.products.map((p) => (p.id === id ? updated : p)),
-        selectedProduct: state.selectedProduct?.id === id ? updated : state.selectedProduct,
-        isLoading: false,
-      }));
-      return true;
-    } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
-      return false;
-    }
-  },
-
-  deleteProduct: async (id) => {
-    try {
-      set({ isLoading: true, error: null });
-      await productApi.deleteProduct(id);
-      set((state) => ({
-        products: state.products.filter((p) => p.id !== id),
-        selectedProduct: state.selectedProduct?.id === id ? null : state.selectedProduct,
-        isLoading: false,
-      }));
-      return true;
-    } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
-      return false;
-    }
-  },
-
-  toggleStatus: async (id) => {
-    try {
-      const updated = await productApi.toggleProductStatus(id);
-      set((state) => ({
-        products: state.products.map((p) => (p.id === id ? updated : p)),
-      }));
-    } catch (err) {
-      set({ error: normalizeApiError(err).message });
-    }
-  },
-
-  setSelectedProduct: (product) => set({ selectedProduct: product }),
-  setCreateModalOpen: (open) => set({ isCreateModalOpen: open }),
-  setDetailDrawerOpen: (open) => set({ isDetailDrawerOpen: open }),
 }));
-

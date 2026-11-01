@@ -1,125 +1,230 @@
-import React, { useEffect, useState } from 'react';
-import { Plus } from 'lucide-react';
-import { useSupplierStore } from '../../../store/supplierStore';
-import { PageHeader } from '../../../components/layout/PageHeader';
-import { Button } from '../../../components/ui/Button';
-import { Input } from '../../../components/ui/Input';
-import { Dialog } from '../../../components/ui/Dialog';
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '../../../components/ui/Table';
-import { formatNaira } from '../../../utils/currency';
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/Button';
+import { Dialog } from '@/components/ui/Dialog';
+import { StatusIndicator } from '@/components/ui/StatusIndicator';
+import { useSettingsStore } from '@/store/settingsStore';
+import { useSupplierStore } from '@/store/supplierStore';
+import { useUiStore } from '@/store/uiStore';
+import styles from '@/styles/SharedPages.module.css';
+import { formatCompactCurrency, formatCurrency } from '@/utils/currency';
+import { formatShortDate } from '@/utils/dates';
 
-export const SuppliersPage: React.FC = () => {
-  const { suppliers, fetchSuppliers, createSupplier } = useSupplierStore();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+export function SuppliersPage() {
+  const settings = useSettingsStore((s) => s.settings);
+  const pushToast = useUiStore((s) => s.pushToast);
+
+  const suppliers = useSupplierStore((s) => s.suppliers);
+  const fetchSuppliers = useSupplierStore((s) => s.fetchSuppliers);
+  const createSupplier = useSupplierStore((s) => s.createSupplier);
+
+  const [search, setSearch] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState('');
   const [contactPerson, setContactPerson] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('+234 803 ');
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
-  const [categoriesText, setCategoriesText] = useState('Grains & Rice');
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchSuppliers();
+    void fetchSuppliers();
   }, [fetchSuppliers]);
+
+  const filtered = suppliers.filter(
+    (s) =>
+      s.name.toLowerCase().includes(search.toLowerCase()) ||
+      s.contactPerson.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const totalPayables = suppliers.reduce((acc, s) => acc + s.outstandingPayable, 0);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    await createSupplier({
+    if (!name.trim()) return;
+    const created = await createSupplier({
       name,
       contactPerson,
       phone,
       email,
       address,
-      suppliedCategories: categoriesText.split(',').map((s) => s.trim()),
-      isActive: true,
+      suppliedCategories: ['Grains & Staples'],
     });
-    setIsSubmitting(false);
-    setIsModalOpen(false);
-    setName('');
-    setContactPerson('');
-    setPhone('');
-    setEmail('');
-    setAddress('');
+    if (created) {
+      setModalOpen(false);
+      setName('');
+      setContactPerson('');
+      setEmail('');
+      setAddress('');
+      pushToast({ title: `Supplier ${created.name} added`, tone: 'success' });
+    }
   };
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Distributors & Wholesale Suppliers"
-        description="Manage direct foodstuff millers, FMCG distribution partners, and depot contacts."
-        actions={
-          <Button
-            size="sm"
-            onClick={() => setIsModalOpen(true)}
-            leftIcon={<Plus className="w-4 h-4" />}
-          >
-            Add Supplier
-          </Button>
+    <div className={styles.pageWrap}>
+      <div className={styles.headerRow}>
+        <div>
+          <h1 className={styles.pageTitle}>Suppliers</h1>
+          <p className={styles.pageSubtitle}>
+            Manage wholesale foodstuff distributors, coldrooms, and agro-merchants.
+          </p>
+        </div>
+        <Button variant="primary" onClick={() => setModalOpen(true)}>
+          + Add Supplier
+        </Button>
+      </div>
+
+      <div className={styles.statStrip3}>
+        <div className={styles.statBox}>
+          <span className={styles.statBig}>{suppliers.length}</span>
+          <span className={styles.statLabel}>Active foodstuff suppliers</span>
+        </div>
+        <div className={styles.statBox}>
+          <span className={styles.statBig}>
+            {formatCompactCurrency(
+              suppliers.reduce((acc, s) => acc + s.totalPurchasesValue, 0)
+            )}
+          </span>
+          <span className={styles.statLabel}>Total procurement volume</span>
+        </div>
+        <div className={styles.statBox}>
+          <span className={styles.statBig}>{formatCompactCurrency(totalPayables)}</span>
+          <span className={styles.statLabel}>Outstanding supplier payables</span>
+        </div>
+      </div>
+
+      <div className={styles.toolbar}>
+        <input
+          type="search"
+          className={styles.searchInput}
+          placeholder="Search supplier or contact person..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Supplier</th>
+              <th>Contact Person</th>
+              <th>Phone</th>
+              <th>Supplied Categories</th>
+              <th style={{ textAlign: 'right' }}>Total Purchases</th>
+              <th style={{ textAlign: 'right' }}>Outstanding Payable</th>
+              <th>Last Supply</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((sup) => (
+              <tr key={sup.id}>
+                <td style={{ fontWeight: 500 }}>{sup.name}</td>
+                <td>{sup.contactPerson}</td>
+                <td className="tabular-nums">{sup.phone}</td>
+                <td style={{ color: 'var(--color-text-secondary)' }}>
+                  {sup.suppliedCategories.join(', ')}
+                </td>
+                <td className="tabular-nums" style={{ textAlign: 'right', fontWeight: 600 }}>
+                  {formatCurrency(sup.totalPurchasesValue, settings.currency, settings.locale)}
+                </td>
+                <td
+                  className="tabular-nums"
+                  style={{
+                    textAlign: 'right',
+                    fontWeight: 600,
+                    color:
+                      sup.outstandingPayable > 0
+                        ? 'var(--color-warning)'
+                        : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {formatCurrency(sup.outstandingPayable, settings.currency, settings.locale)}
+                </td>
+                <td className="tabular-nums">{formatShortDate(sup.lastSupplyDate)}</td>
+                <td>
+                  <StatusIndicator tone="success" label="Active" appearance="tag" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Add Foodstuff Supplier"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={(e) => void handleCreate(e)}>
+              Save Supplier
+            </Button>
+          </>
         }
-      />
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Supplier Company</TableHead>
-            <TableHead>Contact Representative</TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead>Depot Location</TableHead>
-            <TableHead>Supplied Categories</TableHead>
-            <TableHead>Total Purchase Volume</TableHead>
-            <TableHead>Payable Balance</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {suppliers.map((s) => (
-            <TableRow key={s.id}>
-              <TableCell className="font-semibold text-slate-900">{s.name}</TableCell>
-              <TableCell className="font-medium text-slate-800">{s.contactPerson}</TableCell>
-              <TableCell className="font-mono text-slate-600">{s.phone}</TableCell>
-              <TableCell className="text-slate-600 max-w-xs truncate">{s.address}</TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  {s.suppliedCategories.map((c, i) => (
-                    <span key={i} className="px-1.5 py-0.5 text-[10px] bg-slate-100 rounded text-slate-700">
-                      {c}
-                    </span>
-                  ))}
-                </div>
-              </TableCell>
-              <TableCell className="font-bold font-mono text-slate-900">
-                {formatNaira(s.totalPurchases)}
-              </TableCell>
-              <TableCell className="font-bold font-mono text-amber-700">
-                {formatNaira(s.balancePayable)}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <Dialog isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add Supplier Partner">
-        <form onSubmit={handleCreate} className="space-y-3.5">
-          <Input label="Company Name" required value={name} onChange={(e) => setName(e.target.value)} />
-          <Input label="Contact Representative" required value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} />
-          <Input label="Phone" required value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <Input label="Email Address" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <Input label="Depot / Warehouse Address" value={address} onChange={(e) => setAddress(e.target.value)} />
-          <Input label="Supplied Categories (comma separated)" value={categoriesText} onChange={(e) => setCategoriesText(e.target.value)} />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button type="submit" size="sm" isLoading={isSubmitting}>Save Supplier</Button>
+      >
+        <form className={styles.formStack} onSubmit={handleCreate}>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="sup-name" className={styles.label}>
+              Company / Depot Name
+            </label>
+            <input
+              id="sup-name"
+              className={styles.input}
+              placeholder="e.g. Mile 12 Grains Syndicate"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="sup-contact" className={styles.label}>
+              Contact Person
+            </label>
+            <input
+              id="sup-contact"
+              className={styles.input}
+              value={contactPerson}
+              onChange={(e) => setContactPerson(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="sup-phone" className={styles.label}>
+              Phone Number
+            </label>
+            <input
+              id="sup-phone"
+              className={styles.input}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="sup-email" className={styles.label}>
+              Email
+            </label>
+            <input
+              id="sup-email"
+              className={styles.input}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className={styles.fieldGroup}>
+            <label htmlFor="sup-addr" className={styles.label}>
+              Depot Address
+            </label>
+            <input
+              id="sup-addr"
+              className={styles.input}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
           </div>
         </form>
       </Dialog>
     </div>
   );
-};
+}

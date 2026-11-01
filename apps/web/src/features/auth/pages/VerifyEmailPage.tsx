@@ -1,95 +1,75 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Mail, CheckCircle2 } from 'lucide-react';
-import { Button } from '../../../components/ui/Button';
-import { PATHS } from '../../../router/paths';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { PATHS } from '@/app/router/paths';
+import { Button } from '@/components/ui/Button';
+import { useAuthStore } from '@/store/authStore';
+import styles from './AuthPages.module.css';
 
-export const VerifyEmailPage: React.FC = () => {
+export function VerifyEmailPage() {
   const navigate = useNavigate();
-  const [code, setCode] = useState(['', '', '', '', '', '']);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const pendingEmail = useAuthStore((s) => s.pendingVerificationEmail);
+  const verifyEmail = useAuthStore((s) => s.verifyEmail);
+  const authError = useAuthStore((s) => s.error);
 
-  const handleChange = (index: number, val: string) => {
-    if (val.length > 1) val = val.slice(-1);
-    const newCode = [...code];
-    newCode[index] = val;
-    setCode(newCode);
+  const [code, setCode] = useState('482910');
+  const [resentMessage, setResentMessage] = useState('');
 
-    // Auto-focus next input
-    if (val && index < 5) {
-      const nextInput = document.getElementById(`code-${index + 1}`);
-      nextInput?.focus();
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const ok = await verifyEmail(code);
+    if (ok) {
+      navigate(PATHS.AUTH.ONBOARDING);
     }
   };
 
-  const handleVerify = () => {
-    setIsVerifying(true);
-    setTimeout(() => {
-      setIsVerifying(false);
-      setIsSuccess(true);
-      setTimeout(() => {
-        navigate(PATHS.POS);
-      }, 1200);
-    }, 600);
-  };
-
   return (
-    <div className="space-y-6 text-center">
-      <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-100">
-        <Mail className="w-6 h-6" />
-      </div>
-
-      <div>
-        <h2 className="text-lg font-bold text-slate-900">Verify your staff email</h2>
-        <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-          We sent a 6-digit confirmation code to your email. (Simulated Demo Code: any 6 numbers)
+    <div>
+      <div className={styles.pageHeader}>
+        <h2 className={styles.title}>Verify your email</h2>
+        <p className={styles.subtitle}>
+          Simulated verification step for{' '}
+          <strong>{pendingEmail || 'operations@oluwafoodmart.ng'}</strong>. Enter any 6-digit code
+          to continue.
         </p>
       </div>
 
-      {isSuccess ? (
-        <div className="p-4 rounded-[var(--radius-card)] bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center justify-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span>Email successfully verified! Redirecting to Point of Sale...</span>
-        </div>
-      ) : (
-        <div className="space-y-5">
-          <div className="flex justify-center gap-2">
-            {code.map((digit, i) => (
-              <input
-                key={i}
-                id={`code-${i}`}
-                type="text"
-                maxLength={1}
-                value={digit}
-                onChange={(e) => handleChange(i, e.target.value)}
-                className="w-10 h-12 text-center text-lg font-bold border border-slate-300 rounded-[var(--radius-control)] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-white"
-              />
-            ))}
-          </div>
+      {authError && <div className={styles.bannerError}>{authError}</div>}
+      {resentMessage && <div className={styles.bannerSuccess}>{resentMessage}</div>}
 
-          <Button
-            className="w-full"
-            onClick={handleVerify}
-            isLoading={isVerifying}
-            disabled={code.some((c) => !c)}
+      <form className={styles.form} onSubmit={handleSubmit}>
+        <div className={styles.fieldGroup}>
+          <label htmlFor="verify-code" className={styles.label}>
+            6-digit verification code
+          </label>
+          <input
+            id="verify-code"
+            type="text"
+            maxLength={6}
+            className={styles.input}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+          />
+        </div>
+
+        <Button type="submit" size="lg">
+          Verify & proceed to store setup
+        </Button>
+
+        <div className={styles.rowBetween}>
+          <button
+            type="button"
+            className={styles.link}
+            onClick={() =>
+              setResentMessage('Simulated new 6-digit verification code (482910) generated.')
+            }
           >
-            Verify & Launch POS
-          </Button>
-
-          <p className="text-xs text-slate-500">
-            Didn't receive code?{' '}
-            <button
-              type="button"
-              onClick={() => alert('Verification code resent (Simulated).')}
-              className="text-emerald-600 font-semibold hover:underline"
-            >
-              Resend Code
-            </button>
-          </p>
+            Resend code
+          </button>
+          <Link to={PATHS.AUTH.REGISTER} className={styles.link}>
+            Change email address
+          </Link>
         </div>
-      )}
+      </form>
     </div>
   );
-};
-
+}

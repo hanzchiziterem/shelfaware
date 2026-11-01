@@ -1,274 +1,219 @@
-import { apiClient } from '../../../services/api/axiosInstance';
-import { API_CONFIG } from '../../../services/api/apiConfig';
-import { mockStorage } from '../../../mocks/mockStorage';
-import { DashboardOverview } from '../../../mocks/dashboard';
+import { loadMockDb } from '@/mocks/mockDb';
+import { API_CONFIG } from '@/services/api/apiConfig';
+import { API_ENDPOINTS, type ApiResponse } from '@/services/api/apiTypes';
+import { axiosInstance } from '@/services/api/axiosInstance';
+import type { Product, Sale, StockBatch, StockMovement } from '@/types/common';
+import { getDaysUntilExpiry } from '@/utils/dates';
+import { getStockStatus } from '@/utils/formatters';
 
-/**
- * Dashboard API Service
- * ============================================================
- * BACKEND INTEGRATION INSTRUCTIONS:
- * When connecting to your production backend:
- * 1. Set VITE_USE_MOCK_API=false in .env.local
- * 2. Implement the corresponding REST endpoints on your server:
- *    - GET /api/v1/dashboard/overview
- *    - GET /api/v1/dashboard/sales-trend
- *    - GET /api/v1/dashboard/weekly-sales
- *    - GET /api/v1/dashboard/payments
- *    - GET /api/v1/dashboard/top-products
- * ============================================================
- */
+export interface DashboardMetrics {
+  periodLabel: string;
+  todaysSalesRevenue: number;
+  todaysTransactionsCount: number;
+  todaysCostOfGoodsSold: number;
+  estimatedGrossProfit: number;
+  totalInventoryValue: number;
+  totalInventoryRetailValue: number;
+  activeSkuCount: number;
+  inStockSkuCount: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  expiringSoonCount: number;
+  salesTrend: Array<{
+    label: string;
+    revenue: number;
+    grossProfit: number;
+    orders: number;
+  }>;
+  paymentBreakdown: Array<{
+    method: string;
+    amount: number;
+    percentage: number;
+    count: number;
+  }>;
+  topSellingProducts: Array<{
+    productId: string;
+    name: string;
+    categoryName: string;
+    unitsSold: number;
+    revenue: number;
+  }>;
+  recentSales: Sale[];
+  lowStockProducts: Product[];
+  expiringBatches: StockBatch[];
+  recentMovements: StockMovement[];
+}
+
 export const dashboardApi = {
-  /**
-   * Endpoint: GET /api/v1/dashboard/overview
-   */
-  async getOverview(): Promise<DashboardOverview> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 100));
-      const sales = mockStorage.getSales();
-      const products = mockStorage.getProducts();
-
-      const completedSales = sales.filter((s) => s.status === 'completed');
-      const now = Date.now();
-      const oneDayAgo = now - 24 * 60 * 60 * 1000;
-      const twoDaysAgo = now - 48 * 60 * 60 * 1000;
-
-      // Filter sales belonging to today (past 24h)
-      const todaySalesList = completedSales.filter((s) => {
-        const time = new Date(s.createdAt).getTime();
-        return time >= oneDayAgo;
-      });
-
-      // Filter sales belonging to yesterday (24-48h ago) for dynamic growth %
-      const yesterdaySalesList = completedSales.filter((s) => {
-        const time = new Date(s.createdAt).getTime();
-        return time >= twoDaysAgo && time < oneDayAgo;
-      });
-
-      const todaySales = todaySalesList.reduce((acc, s) => acc + s.totalAmount, 0);
-      const yesterdaySales = yesterdaySalesList.reduce((acc, s) => acc + s.totalAmount, 0);
-
-      // Dynamic Gross Profit = Revenue - COGS
-      let todayCOGS = 0;
-      todaySalesList.forEach((sale) => {
-        sale.items.forEach((item) => {
-          const prod = products.find((p) => p.id === item.productId);
-          const cost = prod ? prod.costPrice : item.unitPrice * 0.8;
-          todayCOGS += item.quantity * cost;
-        });
-      });
-      const todayGrossProfit = Math.max(0, todaySales - todayCOGS);
-
-      // Dynamic inventory aggregates
-      const totalInventoryValue = products.reduce((acc, p) => acc + p.currentStock * p.sellingPrice, 0);
-      const lowStockCount = products.filter((p) => p.isActive && p.currentStock <= p.minStockThreshold).length;
-      const expiringStockCount = products.filter(
-        (p) =>
-          p.trackExpiry &&
-          p.expiryDate &&
-          new Date(p.expiryDate).getTime() - now < 1000 * 60 * 60 * 24 * 60
-      ).length;
-
-      const salesGrowthPct =
-        yesterdaySales > 0
-          ? Number((((todaySales - yesterdaySales) / yesterdaySales) * 100).toFixed(1))
-          : todaySales > 0
-          ? 100
-          : 0;
-
-      const profitMarginPct =
-        todaySales > 0 ? Number(((todayGrossProfit / todaySales) * 100).toFixed(1)) : 0;
-
-      return {
-        todaySales,
-        todayTransactions: todaySalesList.length,
-        todayGrossProfit,
-        totalInventoryValue,
-        lowStockCount,
-        expiringStockCount,
-        salesGrowthPct,
-        profitMarginPct,
-      };
+  async getDashboardData(
+    period: 'today' | '7d' | '30d' = '30d'
+  ): Promise<ApiResponse<DashboardMetrics>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.get<ApiResponse<DashboardMetrics>>(
+        API_ENDPOINTS.DASHBOARD.OVERVIEW,
+        { params: { period } }
+      );
+      return data;
     }
-    const res = await apiClient.get<DashboardOverview>('/dashboard/overview');
-    return res.data;
-  },
 
-  /**
-   * Endpoint: GET /api/v1/dashboard/sales-trend
-   */
-  async getSalesTrend(): Promise<Array<{ time: string; sales: number; transactions: number }>> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 80));
-      const sales = mockStorage.getSales();
-      const completedToday = sales.filter((s) => {
-        const isCompleted = s.status === 'completed';
-        const isRecent = Date.now() - new Date(s.createdAt).getTime() <= 24 * 60 * 60 * 1000;
-        return isCompleted && isRecent;
-      });
+    const db = loadMockDb();
 
-      const hours = ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00'];
-      return hours.map((hourStr) => {
-        const targetH = parseInt(hourStr.slice(0, 2), 10);
-        const matchingSales = completedToday.filter((s) => {
-          const d = new Date(s.createdAt);
-          const saleH = d.getHours();
-          return Math.abs(saleH - targetH) <= 1;
-        });
+    // Filter sales consistently according to the selected date range
+    const filterByPeriod = (createdAt: string): boolean => {
+      const d = createdAt.slice(0, 10);
+      if (period === 'today') {
+        // Include demo "today" (2026-10-30) and any newly created runtime sales
+        return d >= '2026-10-30';
+      }
+      if (period === '7d') {
+        return d >= '2026-10-28';
+      }
+      return true;
+    };
 
-        const salesSum = matchingSales.reduce((acc, s) => acc + s.totalAmount, 0);
-        return {
-          time: hourStr,
-          sales: salesSum,
-          transactions: matchingSales.length,
-        };
-      });
+    const periodSales = db.sales.filter((s) => filterByPeriod(s.createdAt));
+    const completedSales = periodSales.filter((s) => s.status === 'completed');
+
+    let todaysSalesRevenue = 0;
+    let todaysCostOfGoodsSold = 0;
+    for (const sale of completedSales) {
+      todaysSalesRevenue += sale.total;
+      for (const item of sale.items) {
+        todaysCostOfGoodsSold += item.costPrice * item.quantity;
+      }
     }
-    const res = await apiClient.get('/dashboard/sales-trend');
-    return res.data;
-  },
 
-  /**
-   * Endpoint: GET /api/v1/dashboard/weekly-sales
-   */
-  async getWeeklySales(): Promise<Array<{ day: string; revenue: number; profit: number }>> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 80));
-      const sales = mockStorage.getSales();
-      const products = mockStorage.getProducts();
-      const completedSales = sales.filter((s) => s.status === 'completed');
+    const estimatedGrossProfit = Math.max(0, todaysSalesRevenue - todaysCostOfGoodsSold);
 
-      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const past7Days = Array.from({ length: 7 }).map((_, i) => {
-        const d = new Date(Date.now() - (6 - i) * 24 * 60 * 60 * 1000);
-        return {
-          dateStr: d.toISOString().slice(0, 10),
-          dayName: dayNames[d.getDay()],
-        };
-      });
+    let totalInventoryValue = 0;
+    let totalInventoryRetailValue = 0;
+    let inStockSkuCount = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
 
-      return past7Days.map(({ dateStr, dayName }) => {
-        const daySales = completedSales.filter((s) => s.createdAt.slice(0, 10) === dateStr);
-        const revenue = daySales.reduce((sum, s) => sum + s.totalAmount, 0);
-
-        let cogs = 0;
-        daySales.forEach((s) => {
-          s.items.forEach((item) => {
-            const p = products.find((prod) => prod.id === item.productId);
-            cogs += item.quantity * (p ? p.costPrice : item.unitPrice * 0.8);
-          });
-        });
-
-        const profit = Math.max(0, revenue - cogs);
-        return {
-          day: dayName,
-          revenue,
-          profit,
-        };
-      });
+    const activeProducts = db.products.filter((p) => p.status === 'active');
+    for (const product of activeProducts) {
+      totalInventoryValue += product.costPrice * product.stockQuantity;
+      totalInventoryRetailValue += product.sellingPrice * product.stockQuantity;
+      if (product.stockQuantity > 0) inStockSkuCount++;
+      const status = getStockStatus(product.stockQuantity, product.minStockThreshold);
+      if (status === 'low_stock') lowStockCount++;
+      if (status === 'out_of_stock') outOfStockCount++;
     }
-    const res = await apiClient.get('/dashboard/weekly-sales');
-    return res.data;
-  },
 
-  /**
-   * Endpoint: GET /api/v1/dashboard/payments
-   */
-  async getPaymentBreakdown(): Promise<
-    Array<{ method: string; value: number; percentage: number; color: string }>
-  > {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 80));
-      const sales = mockStorage.getSales();
-      const completedSales = sales.filter((s) => s.status === 'completed');
+    const expiringBatches = db.batches.filter(
+      (b) =>
+        b.remainingQuantity > 0 &&
+        getDaysUntilExpiry(b.expiryDate) <= db.settings.expiryWarningDays
+    );
 
-      let cash = 0;
-      let transfer = 0;
-      let card = 0;
+    // Aggregate payment breakdown from completed sales in the selected period
+    const methodTotals: Record<string, { amount: number; count: number }> = {
+      'Bank Transfer': { amount: 0, count: 0 },
+      'POS Card': { amount: 0, count: 0 },
+      Cash: { amount: 0, count: 0 },
+    };
 
-      completedSales.forEach((s) => {
-        if (s.paymentDetails && s.paymentDetails.length > 0) {
-          s.paymentDetails.forEach((p) => {
-            if (p.method === 'cash') cash += p.amount;
-            else if (p.method === 'bank_transfer') transfer += p.amount;
-            else card += p.amount;
-          });
-        } else {
-          if (s.paymentMethod === 'cash') cash += s.totalAmount;
-          else if (s.paymentMethod === 'bank_transfer') transfer += s.totalAmount;
-          else card += s.totalAmount;
-        }
-      });
-
-      const total = cash + transfer + card;
-      return [
-        {
-          method: 'Cash',
-          value: cash,
-          percentage: total > 0 ? Number(((cash / total) * 100).toFixed(1)) : 0,
-          color: '#10B981',
-        },
-        {
-          method: 'Bank Transfer',
-          value: transfer,
-          percentage: total > 0 ? Number(((transfer / total) * 100).toFixed(1)) : 0,
-          color: '#3B82F6',
-        },
-        {
-          method: 'POS Card',
-          value: card,
-          percentage: total > 0 ? Number(((card / total) * 100).toFixed(1)) : 0,
-          color: '#6366F1',
-        },
-      ];
+    for (const sale of completedSales) {
+      const label =
+        sale.paymentMethod === 'bank_transfer'
+          ? 'Bank Transfer'
+          : sale.paymentMethod === 'card'
+          ? 'POS Card'
+          : 'Cash';
+      if (!methodTotals[label]) methodTotals[label] = { amount: 0, count: 0 };
+      methodTotals[label].amount += sale.total;
+      methodTotals[label].count += 1;
     }
-    const res = await apiClient.get('/dashboard/payments');
-    return res.data;
-  },
 
-  /**
-   * Endpoint: GET /api/v1/dashboard/top-products
-   */
-  async getTopProducts(): Promise<
-    Array<{ id: string; name: string; category: string; soldCount: number; revenue: number; profit: number }>
-  > {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 80));
-      const sales = mockStorage.getSales();
-      const products = mockStorage.getProducts();
-      const completedSales = sales.filter((s) => s.status === 'completed');
+    const grandTotal = todaysSalesRevenue || 1;
+    const paymentBreakdown = Object.entries(methodTotals).map(([method, stats]) => ({
+      method,
+      amount: stats.amount,
+      count: stats.count,
+      percentage: todaysSalesRevenue > 0 ? Math.round((stats.amount / grandTotal) * 100) : 0,
+    }));
 
-      const productMap = new Map<
-        string,
-        { id: string; name: string; category: string; soldCount: number; revenue: number; profit: number }
-      >();
+    // Aggregate top products from completed sales in the selected period
+    const productSalesMap = new Map<
+      string,
+      { productId: string; name: string; categoryName: string; unitsSold: number; revenue: number }
+    >();
 
-      completedSales.forEach((s) => {
-        s.items.forEach((item) => {
-          const existing = productMap.get(item.productId) || {
-            id: item.productId,
-            name: item.productName,
-            category: 'Groceries',
-            soldCount: 0,
-            revenue: 0,
-            profit: 0,
-          };
-          const prod = products.find((p) => p.id === item.productId);
-          const cost = prod ? prod.costPrice : item.unitPrice * 0.8;
-          const profitOnItem = (item.unitPrice - cost) * item.quantity;
-
-          existing.category = prod ? prod.categoryName : existing.category;
-          existing.soldCount += item.quantity;
+    for (const sale of completedSales) {
+      for (const item of sale.items) {
+        const existing = productSalesMap.get(item.productId);
+        const prod = db.products.find((p) => p.id === item.productId);
+        if (existing) {
+          existing.unitsSold += item.quantity;
           existing.revenue += item.subtotal;
-          existing.profit += profitOnItem;
-          productMap.set(item.productId, existing);
-        });
-      });
-
-      return Array.from(productMap.values())
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 5);
+        } else {
+          productSalesMap.set(item.productId, {
+            productId: item.productId,
+            name: item.productName,
+            categoryName: prod?.categoryName || 'Foodstuff',
+            unitsSold: item.quantity,
+            revenue: item.subtotal,
+          });
+        }
+      }
     }
-    const res = await apiClient.get('/dashboard/top-products');
-    return res.data;
+
+    const topSellingProducts = Array.from(productSalesMap.values())
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5);
+
+    const fullTrend = [
+      { label: '25 Oct', revenue: 175000, grossProfit: 18250, orders: 14 },
+      { label: '26 Oct', revenue: 218400, grossProfit: 24100, orders: 18 },
+      { label: '27 Oct', revenue: 141000, grossProfit: 14750, orders: 12 },
+      { label: '28 Oct', revenue: 245100, grossProfit: 28900, orders: 19 },
+      { label: '29 Oct', revenue: 506000, grossProfit: 53400, orders: 27 },
+      { label: '30 Oct', revenue: 543000, grossProfit: 59800, orders: 31 },
+    ];
+
+    const salesTrend =
+      period === 'today'
+        ? [
+            { label: '08:00', revenue: 84000, grossProfit: 9200, orders: 4 },
+            { label: '10:00', revenue: 192000, grossProfit: 21500, orders: 9 },
+            { label: '12:00', revenue: 145000, grossProfit: 15800, orders: 11 },
+            { label: '14:00', revenue: 122000, grossProfit: 13300, orders: 7 },
+          ]
+        : period === '7d'
+        ? fullTrend.slice(-4)
+        : fullTrend;
+
+    const lowStockProducts = activeProducts
+      .filter((p) => p.stockQuantity <= p.minStockThreshold)
+      .sort((a, b) => a.stockQuantity - b.stockQuantity);
+
+    const periodLabel =
+      period === 'today' ? 'Today' : period === '7d' ? 'Last 7 days' : 'This month';
+
+    return {
+      success: true,
+      data: {
+        periodLabel,
+        todaysSalesRevenue,
+        todaysTransactionsCount: completedSales.length,
+        todaysCostOfGoodsSold,
+        estimatedGrossProfit,
+        totalInventoryValue,
+        totalInventoryRetailValue,
+        activeSkuCount: activeProducts.length,
+        inStockSkuCount,
+        lowStockCount,
+        outOfStockCount,
+        expiringSoonCount: expiringBatches.length,
+        salesTrend,
+        paymentBreakdown,
+        topSellingProducts,
+        recentSales: periodSales.slice(0, 7),
+        lowStockProducts,
+        expiringBatches,
+        recentMovements: db.movements.slice(0, 6),
+      },
+    };
   },
 };

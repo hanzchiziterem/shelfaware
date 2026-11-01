@@ -1,65 +1,95 @@
 import { create } from 'zustand';
-import { StockMovement, StockBatch } from '../types/domain';
-import { inventoryApi } from '../features/inventory/services/inventoryApi';
-import { StockAdjustmentPayload } from '../services/api/apiTypes';
-import { normalizeApiError } from '../services/api/apiErrors';
+import {
+  inventoryApi,
+  type RegisterBatchPayload,
+  type StockAdjustmentPayload,
+} from '@/features/inventory/services/inventoryApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
+import type { Product, StockBatch, StockMovement, StocktakeSession } from '@/types/common';
 
 interface InventoryState {
+  products: Product[];
   movements: StockMovement[];
   batches: StockBatch[];
+  stocktakes: StocktakeSession[];
   isLoading: boolean;
   error: string | null;
-  isAdjustModalOpen: boolean;
-
-  fetchMovements: () => Promise<void>;
-  fetchBatches: () => Promise<void>;
+  fetchInventory: () => Promise<void>;
   adjustStock: (payload: StockAdjustmentPayload) => Promise<boolean>;
-  setAdjustModalOpen: (open: boolean) => void;
+  registerBatch: (payload: RegisterBatchPayload) => Promise<boolean>;
+  recordStocktake: (payload: {
+    countedBy: string;
+    notes?: string;
+    counts: Array<{ productId: string; countedQuantity: number }>;
+  }) => Promise<boolean>;
 }
 
-export const useInventoryStore = create<InventoryState>((set) => ({
+export const useInventoryStore = create<InventoryState>((set, get) => ({
+  products: [],
   movements: [],
   batches: [],
+  stocktakes: [],
   isLoading: false,
   error: null,
-  isAdjustModalOpen: false,
 
-  fetchMovements: async () => {
+  fetchInventory: async () => {
+    set({ isLoading: true, error: null });
     try {
-      set({ isLoading: true, error: null });
-      const movements = await inventoryApi.getMovements();
-      set({ movements, isLoading: false });
+      const res = await inventoryApi.getInventoryData();
+      set({
+        products: res.data.products,
+        movements: res.data.movements,
+        batches: res.data.batches,
+        stocktakes: res.data.stocktakes,
+        isLoading: false,
+      });
     } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
-    }
-  },
-
-  fetchBatches: async () => {
-    try {
-      set({ isLoading: true, error: null });
-      const batches = await inventoryApi.getBatches();
-      set({ batches, isLoading: false });
-    } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message, isLoading: false });
     }
   },
 
   adjustStock: async (payload) => {
+    set({ error: null });
     try {
-      set({ isLoading: true, error: null });
-      const newMovement = await inventoryApi.adjustStock(payload);
+      const res = await inventoryApi.adjustStock(payload);
       set((state) => ({
-        movements: [newMovement, ...state.movements],
-        isLoading: false,
-        isAdjustModalOpen: false,
+        products: state.products.map((p) =>
+          p.id === res.data.product.id ? res.data.product : p
+        ),
+        movements: [res.data.movement, ...state.movements],
       }));
       return true;
     } catch (err) {
-      set({ error: normalizeApiError(err).message, isLoading: false });
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
       return false;
     }
   },
 
-  setAdjustModalOpen: (open) => set({ isAdjustModalOpen: open }),
-}));
+  registerBatch: async (payload) => {
+    set({ error: null });
+    try {
+      await inventoryApi.registerBatch(payload);
+      await get().fetchInventory();
+      return true;
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
+      return false;
+    }
+  },
 
+  recordStocktake: async (payload) => {
+    set({ error: null });
+    try {
+      await inventoryApi.recordStocktake(payload);
+      await get().fetchInventory();
+      return true;
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message });
+      return false;
+    }
+  },
+}));

@@ -1,104 +1,207 @@
-import { apiClient } from '../../../services/api/axiosInstance';
-import { API_CONFIG } from '../../../services/api/apiConfig';
-import { Sale } from '../../../types/domain';
-import { mockStorage } from '../../../mocks/mockStorage';
-import { CheckoutRequest } from '../../../services/api/apiTypes';
+import { loadMockDb, saveMockDb } from '@/mocks/mockDb';
+import { API_CONFIG } from '@/services/api/apiConfig';
+import { API_ENDPOINTS, type ApiResponse } from '@/services/api/apiTypes';
+import { axiosInstance } from '@/services/api/axiosInstance';
+import type { OrderFulfillmentType, PaymentMethod, PaymentRecord, Sale, SaleItem } from '@/types/common';
+import {
+  addAmounts,
+  calculateCashChange,
+  calculateDiscountAmount,
+  calculateTaxAmount,
+  multiplyAmount,
+  subtractAmounts,
+} from '@/utils/currency';
+import { getInitials } from '@/utils/formatters';
+import { isValidSaleQuantity } from '@/utils/validation';
 
-/**
- * POS API Service
- * ============================================================
- * BACKEND INTEGRATION INSTRUCTIONS:
- * When connecting to your production backend:
- * 1. Set VITE_USE_MOCK_API=false in .env.local
- * 2. Implement the corresponding REST endpoints on your server:
- *    - POST /api/v1/pos/checkout (payload: CheckoutRequest)
- * ============================================================
- */
+export interface CheckoutRequest {
+  customerId: string;
+  fulfillmentType: OrderFulfillmentType;
+  cashierId: string;
+  cashierName: string;
+  items: Array<{
+    productId: string;
+    quantity: number;
+  }>;
+  discount?: {
+    type: 'fixed' | 'percentage';
+    value: number;
+  };
+  paymentMethod: PaymentMethod;
+  payments: PaymentRecord[];
+  notes?: string;
+  idempotencyKey: string;
+}
+
 export const posApi = {
   /**
-   * Endpoint: POST /api/v1/pos/checkout
+   * Atomic POS checkout service.
+   * Enforces idempotency, validates stock availability and fractional rules,
+   * recalculates authoritative subtotals/discounts/taxes, decrements inventory,
+   * records stock movement ledger entries, and updates customer spend.
    */
-  async processCheckout(request: CheckoutRequest): Promise<Sale> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 150)); // realistic network delay
-
-      const products = mockStorage.getProducts();
-      const sales = mockStorage.getSales();
-
-      // 1. Validate stock availability
-      for (const item of request.items) {
-        const prod = products.find((p) => p.id === item.productId);
-        if (!prod) {
-          throw new Error(`Product not found: ${item.productId}`);
-        }
-        if (prod.currentStock < item.quantity) {
-          throw new Error(
-            `Insufficient stock for ${prod.name}. Available: ${prod.currentStock}, Requested: ${item.quantity}`
-          );
-        }
-      }
-
-      // 2. Build Sale entity
-      const saleId = `sale-${Date.now()}`;
-      const txnNumber = `TXN-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(
-        sales.length + 1
-      ).padStart(3, '0')}`;
-
-      const saleItems = request.items.map((it, idx) => {
-        const prod = products.find((p) => p.id === it.productId)!;
-        return {
-          id: `item-${Date.now()}-${idx}`,
-          productId: prod.id,
-          productName: prod.name,
-          sku: prod.sku,
-          unit: prod.unit,
-          quantity: it.quantity,
-          unitPrice: it.unitPrice,
-          subtotal: it.quantity * it.unitPrice,
-        };
-      });
-
-      const subtotal = saleItems.reduce((acc, cur) => acc + cur.subtotal, 0);
-      let discountAmount = 0;
-      if (request.discount?.value) {
-        if (request.discount.type === 'percentage') {
-          discountAmount = (subtotal * request.discount.value) / 100;
-        } else {
-          discountAmount = request.discount.value;
-        }
-      }
-      const totalAmount = Math.max(0, subtotal - discountAmount);
-
-      const newSale: Sale = {
-        id: saleId,
-        transactionNumber: txnNumber,
-        cashierId: 'usr-001',
-        cashierName: 'Adeola Adeleke (Admin)',
-        customerId: request.customerId || 'cust-walkin',
-        customerName: request.customerName || 'Walk-in Customer',
-        customerPhone: request.customerId ? '+234 803 123 4567' : undefined,
-        items: saleItems,
-        subtotal,
-        discountType: request.discount?.type,
-        discountValue: request.discount?.value,
-        discountAmount,
-        taxAmount: 0,
-        totalAmount,
-        amountReceived: request.amountReceived,
-        changeDue: request.changeDue,
-        paymentMethod: request.payments[0]?.method || 'cash',
-        paymentDetails: request.payments,
-        orderType: 'store_pickup',
-        status: 'completed',
-        notes: request.notes,
-        createdAt: new Date().toISOString(),
-      };
-
-      // 3. Atomically record sale and cascade stock deduction + customer stats
-      return mockStorage.recordSale(newSale);
+  async submitCheckout(payload: CheckoutRequest): Promise<ApiResponse<Sale>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<Sale>>(
+        API_ENDPOINTS.POS.CHECKOUT,
+        payload
+      );
+      return data;
     }
 
-    const res = await apiClient.post<Sale>('/pos/checkout', request);
-    return res.data;
+    const db = loadMockDb();
+
+    if (!payload.idempotencyKey) {
+      throw new Error('Checkout request requires an idempotencyKey.');
+    }
+
+    if (db.processedIdempotencyKeys.includes(payload.idempotencyKey)) {
+      throw new Error('Duplicate checkout prevented: This sale has already been processed.');
+    }
+
+    if (!payload.items || payload.items.length === 0) {
+      throw new Error('Cannot checkout an empty cart.');
+    }
+
+    // 1. Validate all items and calculate authoritative line subtotals
+    const saleItems: SaleItem[] = [];
+    let subtotal = 0;
+    let totalUnitsCount = 0;
+
+    for (const reqItem of payload.items) {
+      const product = db.products.find((p) => p.id === reqItem.productId);
+      if (!product || product.status !== 'active') {
+        throw new Error(`Product ${reqItem.productId} is unavailable.`);
+      }
+
+      const validation = isValidSaleQuantity(
+        reqItem.quantity,
+        product.stockQuantity,
+        product.allowFractional
+      );
+      if (!validation.valid) {
+        throw new Error(`${product.name}: ${validation.reason}`);
+      }
+
+      const lineSubtotal = multiplyAmount(product.sellingPrice, reqItem.quantity);
+      subtotal = addAmounts(subtotal, lineSubtotal);
+      totalUnitsCount += reqItem.quantity;
+
+      saleItems.push({
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        unit: product.unit,
+        quantity: reqItem.quantity,
+        unitPrice: product.sellingPrice,
+        costPrice: product.costPrice,
+        subtotal: lineSubtotal,
+      });
+    }
+
+    const discountAmount = payload.discount
+      ? calculateDiscountAmount(subtotal, payload.discount.type, payload.discount.value)
+      : 0;
+
+    const taxableAmount = subtractAmounts(subtotal, discountAmount);
+    const taxAmount = db.settings.enableTax
+      ? calculateTaxAmount(taxableAmount, db.settings.taxPercentage)
+      : 0;
+    const grandTotal = addAmounts(taxableAmount, taxAmount);
+
+    // 2. Validate payment amounts
+    const amountReceived = payload.payments.reduce((acc, p) => addAmounts(acc, p.amount), 0);
+    if (amountReceived < grandTotal) {
+      throw new Error(
+        `Insufficient payment tendered (₦${amountReceived.toLocaleString()} received vs ₦${grandTotal.toLocaleString()} due).`
+      );
+    }
+
+    const changeGiven = calculateCashChange(grandTotal, amountReceived);
+
+    // 3. Commit stock deductions and movement records atomically
+    const nextOrderNumInt = 192542 + db.sales.length;
+    const orderNumber = `#${nextOrderNumInt}`;
+    const nowIso = new Date().toISOString();
+
+    for (const item of saleItems) {
+      const prod = db.products.find((p) => p.id === item.productId)!;
+      const previousBalance = prod.stockQuantity;
+      prod.stockQuantity = Number((prod.stockQuantity - item.quantity).toFixed(2));
+      prod.processedCount += Math.ceil(item.quantity);
+      prod.updatedAt = nowIso;
+
+      db.movements.unshift({
+        id: `mov-${Date.now().toString().slice(-4)}-${item.productId}`,
+        productId: prod.id,
+        productName: prod.name,
+        sku: prod.sku,
+        type: 'sale',
+        quantityChange: -item.quantity,
+        previousBalance,
+        newBalance: prod.stockQuantity,
+        unit: prod.unit,
+        reason: `POS Sale ${orderNumber}`,
+        performedBy: payload.cashierName,
+        createdAt: nowIso,
+      });
+    }
+
+    const customer =
+      db.customers.find((c) => c.id === payload.customerId) ||
+      db.customers.find((c) => c.isWalkIn) ||
+      db.customers[0];
+
+    customer.totalSpent = addAmounts(customer.totalSpent, grandTotal);
+    customer.ordersCount += 1;
+    customer.lastTransactionDate = nowIso;
+
+    const newSale: Sale = {
+      id: `sale-${nextOrderNumInt}`,
+      orderNumber,
+      customerId: customer.id,
+      customerName: customer.name,
+      customerInitials: customer.initials || getInitials(customer.name),
+      customerEmail: customer.email,
+      customerPhone: customer.phone,
+      fulfillmentType: payload.fulfillmentType,
+      cashierId: payload.cashierId,
+      cashierName: payload.cashierName,
+      items: saleItems,
+      itemsCount: totalUnitsCount,
+      subtotal,
+      discountAmount,
+      taxAmount,
+      total: grandTotal,
+      paymentMethod: payload.paymentMethod,
+      payments: payload.payments,
+      amountReceived,
+      changeGiven,
+      paymentStatus: 'paid',
+      status: 'completed',
+      notes: payload.notes,
+      createdAt: nowIso,
+    };
+
+    db.sales.unshift(newSale);
+    db.processedIdempotencyKeys.push(payload.idempotencyKey);
+
+    db.notifications.unshift({
+      id: `notif-${Date.now().toString().slice(-5)}`,
+      title: `Sale ${orderNumber} Completed (₦${grandTotal.toLocaleString()})`,
+      message: `${saleItems.length} line item(s) sold to ${customer.name} by ${payload.cashierName}.`,
+      category: 'sale',
+      severity: 'success',
+      isRead: false,
+      createdAt: nowIso,
+      actionPath: '/orders',
+    });
+
+    saveMockDb(db);
+
+    return {
+      success: true,
+      data: newSale,
+    };
   },
 };

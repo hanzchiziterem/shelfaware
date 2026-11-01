@@ -1,49 +1,87 @@
-import { apiClient } from '../../../services/api/axiosInstance';
-import { API_CONFIG } from '../../../services/api/apiConfig';
-import { Supplier } from '../../../types/domain';
-import { mockStorage } from '../../../mocks/mockStorage';
+import { loadMockDb, saveMockDb } from '@/mocks/mockDb';
+import { API_CONFIG } from '@/services/api/apiConfig';
+import { API_ENDPOINTS, type ApiResponse } from '@/services/api/apiTypes';
+import { axiosInstance } from '@/services/api/axiosInstance';
+import type { Supplier } from '@/types/common';
+
+export interface CreateSupplierPayload {
+  name: string;
+  contactPerson: string;
+  phone: string;
+  email: string;
+  address: string;
+  suppliedCategories: string[];
+  outstandingPayable?: number;
+}
 
 export const supplierApi = {
-  async getSuppliers(): Promise<Supplier[]> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 100));
-      return mockStorage.getSuppliers();
+  async getSuppliers(): Promise<ApiResponse<Supplier[]>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.get<ApiResponse<Supplier[]>>(
+        API_ENDPOINTS.SUPPLIERS.BASE
+      );
+      return data;
     }
-    const res = await apiClient.get<Supplier[]>('/suppliers');
-    return res.data;
+
+    const db = loadMockDb();
+    return {
+      success: true,
+      data: [...db.suppliers],
+    };
   },
 
-  async createSupplier(data: Omit<Supplier, 'id' | 'totalPurchases' | 'balancePayable' | 'createdAt'>): Promise<Supplier> {
-    if (API_CONFIG.useMockApi) {
-      await new Promise((r) => setTimeout(r, 150));
-      const suppliers = mockStorage.getSuppliers();
-      const newSupplier: Supplier = {
-        ...data,
-        id: `sup-${Date.now()}`,
-        totalPurchases: 0,
-        balancePayable: 0,
-        createdAt: new Date().toISOString(),
-      };
-      suppliers.unshift(newSupplier);
-      mockStorage.saveSuppliers(suppliers);
-      return newSupplier;
+  async createSupplier(payload: CreateSupplierPayload): Promise<ApiResponse<Supplier>> {
+    if (!API_CONFIG.useMockApi) {
+      const { data } = await axiosInstance.post<ApiResponse<Supplier>>(
+        API_ENDPOINTS.SUPPLIERS.BASE,
+        payload
+      );
+      return data;
     }
-    const res = await apiClient.post<Supplier>('/suppliers', data);
-    return res.data;
+
+    const db = loadMockDb();
+    const newSupplier: Supplier = {
+      id: `sup-${Date.now().toString().slice(-4)}`,
+      name: payload.name.trim(),
+      contactPerson: payload.contactPerson.trim(),
+      phone: payload.phone.trim(),
+      email: payload.email.trim(),
+      address: payload.address.trim(),
+      suppliedCategories: payload.suppliedCategories.length
+        ? payload.suppliedCategories
+        : ['Grains & Staples'],
+      totalPurchasesValue: 0,
+      outstandingPayable: Number(payload.outstandingPayable || 0),
+      lastSupplyDate: new Date().toISOString(),
+      status: 'active',
+    };
+
+    db.suppliers.unshift(newSupplier);
+    saveMockDb(db);
+
+    return {
+      success: true,
+      data: newSupplier,
+    };
   },
 
-  async updateSupplier(id: string, data: Partial<Supplier>): Promise<Supplier> {
-    if (API_CONFIG.useMockApi) {
-      const suppliers = mockStorage.getSuppliers();
-      const idx = suppliers.findIndex((s) => s.id === id);
-      if (idx === -1) throw new Error('Supplier not found');
-      const updated = { ...suppliers[idx], ...data };
-      suppliers[idx] = updated;
-      mockStorage.saveSuppliers(suppliers);
-      return updated;
-    }
-    const res = await apiClient.patch<Supplier>(`/suppliers/${id}`, data);
-    return res.data;
+  async updateSupplier(
+    supplierId: string,
+    payload: Partial<CreateSupplierPayload> & { status?: 'active' | 'inactive' }
+  ): Promise<ApiResponse<Supplier>> {
+    const db = loadMockDb();
+    const idx = db.suppliers.findIndex((s) => s.id === supplierId);
+    if (idx === -1) throw new Error('Supplier not found.');
+
+    db.suppliers[idx] = {
+      ...db.suppliers[idx],
+      ...payload,
+    };
+    saveMockDb(db);
+
+    return {
+      success: true,
+      data: { ...db.suppliers[idx] },
+    };
   },
 };
-

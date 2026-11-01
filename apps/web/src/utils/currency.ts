@@ -1,84 +1,89 @@
 /**
- * Currency utilities for ShelfAware POS & Retail System.
- * Tailored for Nigerian Naira (NGN - ₦) with support for white-label locale overrides.
+ * Centralized monetary calculation and Naira (₦) formatting utilities.
+ * Uses integer kobo (minor units) internally for financial arithmetic to prevent
+ * IEEE-754 floating-point drift during POS cart and discount calculations.
  */
 
-export interface CurrencyFormatOptions {
-  currencySymbol?: string;
-  decimals?: number;
-  showSymbol?: boolean;
+export function toMinorUnits(amountInMajor: number): number {
+  if (!Number.isFinite(amountInMajor)) return 0;
+  return Math.round(amountInMajor * 100);
 }
 
-/**
- * Format a number or minor unit into a formatted currency string (e.g., ₦12,500.00).
- */
-export function formatNaira(
-  amount: number | string | null | undefined,
-  options: CurrencyFormatOptions = {}
-): string {
-  const {
-    currencySymbol = '₦',
-    decimals = 2,
-    showSymbol = true,
-  } = options;
+export function fromMinorUnits(amountInMinor: number): number {
+  if (!Number.isFinite(amountInMinor)) return 0;
+  return Math.round(amountInMinor) / 100;
+}
 
-  if (amount === null || amount === undefined || isNaN(Number(amount))) {
-    return showSymbol ? `${currencySymbol}0.00` : '0.00';
+export function addAmounts(a: number, b: number): number {
+  return fromMinorUnits(toMinorUnits(a) + toMinorUnits(b));
+}
+
+export function subtractAmounts(a: number, b: number): number {
+  return fromMinorUnits(toMinorUnits(a) - toMinorUnits(b));
+}
+
+export function multiplyAmount(unitAmount: number, quantity: number): number {
+  if (!Number.isFinite(unitAmount) || !Number.isFinite(quantity) || quantity < 0) {
+    return 0;
   }
-
-  const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-
-  // Use Intl.NumberFormat for precision and locale formatting
-  const formattedNumber = new Intl.NumberFormat('en-NG', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(num);
-
-  return showSymbol ? `${currencySymbol}${formattedNumber}` : formattedNumber;
+  return fromMinorUnits(Math.round(toMinorUnits(unitAmount) * quantity));
 }
 
-/**
- * Safely parse a currency input string (e.g. "₦12,500.50" -> 12500.5)
- */
-export function parseCurrency(input: string | number): number {
-  if (typeof input === 'number') return isNaN(input) ? 0 : input;
-  if (!input) return 0;
-  // Strip symbol, commas, and whitespace
-  const sanitized = input.replace(/[^0-9.-]/g, '');
-  const parsed = parseFloat(sanitized);
-  return isNaN(parsed) ? 0 : parsed;
-}
-
-/**
- * Calculate line item total safely
- */
-export function calculateLineTotal(quantity: number, unitPrice: number): number {
-  const safeQty = Math.max(0, quantity || 0);
-  const safePrice = Math.max(0, unitPrice || 0);
-  return Math.round(safeQty * safePrice * 100) / 100;
-}
-
-/**
- * Calculate discount amount given subtotal and discount config
- */
-export function calculateDiscount(
+export function calculateDiscountAmount(
   subtotal: number,
-  discountType?: 'percentage' | 'fixed',
-  discountValue?: number
+  discountType: 'fixed' | 'percentage',
+  discountValue: number
 ): number {
-  if (!discountValue || discountValue <= 0) return 0;
-  if (discountType === 'percentage') {
-    const pct = Math.min(100, Math.max(0, discountValue));
-    return Math.round(((subtotal * pct) / 100) * 100) / 100;
+  if (subtotal <= 0 || discountValue <= 0) return 0;
+  if (discountType === 'fixed') {
+    return Math.min(subtotal, fromMinorUnits(toMinorUnits(discountValue)));
   }
-  return Math.min(subtotal, discountValue);
+  const boundedPct = Math.min(100, Math.max(0, discountValue));
+  const minorDiscount = Math.round((toMinorUnits(subtotal) * boundedPct) / 100);
+  return fromMinorUnits(minorDiscount);
 }
 
-/**
- * Calculate cash change returned to customer
- */
-export function calculateChangeDue(total: number, amountPaid: number): number {
-  if (amountPaid < total) return 0;
-  return Math.round((amountPaid - total) * 100) / 100;
+export function calculateTaxAmount(taxableAmount: number, taxPercentage: number): number {
+  if (taxableAmount <= 0 || taxPercentage <= 0) return 0;
+  const minorTax = Math.round((toMinorUnits(taxableAmount) * taxPercentage) / 100);
+  return fromMinorUnits(minorTax);
 }
 
+export function calculateCashChange(totalDue: number, amountTendered: number): number {
+  const diff = subtractAmounts(amountTendered, totalDue);
+  return diff > 0 ? diff : 0;
+}
+
+export function formatCurrency(
+  amount: number,
+  currency: string = 'NGN',
+  locale: string = 'en-NG',
+  showDecimals: boolean = false
+): string {
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: showDecimals ? 2 : 0,
+      maximumFractionDigits: showDecimals ? 2 : 0,
+    }).format(safeAmount);
+  } catch {
+    const formatted = safeAmount.toLocaleString('en-US', {
+      minimumFractionDigits: showDecimals ? 2 : 0,
+      maximumFractionDigits: showDecimals ? 2 : 0,
+    });
+    return `₦${formatted}`;
+  }
+}
+
+export function formatCompactCurrency(amount: number): string {
+  const safe = Number.isFinite(amount) ? amount : 0;
+  if (Math.abs(safe) >= 1_000_000) {
+    return `₦${(safe / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M`;
+  }
+  if (Math.abs(safe) >= 1_000) {
+    return `₦${(safe / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  }
+  return formatCurrency(safe);
+}

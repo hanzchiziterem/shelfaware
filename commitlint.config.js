@@ -5,7 +5,17 @@ const Configuration = {
     "scope-enum": [
       2,
       "always",
-      ["frontend", "backend", "api", "web", "shared", "root", "docs", "ci"],
+      [
+        "frontend",
+        "backend",
+        "api",
+        "web",
+        "shared",
+        "root",
+        "docs",
+        "ci",
+        "release",
+      ],
     ],
     "scope-case": [2, "always", "lower-case"],
     "scope-empty": [2, "never"],

@@ -1,40 +1,40 @@
 import { create } from 'zustand';
-import { reportApi } from '../features/reports/services/reportApi';
+import {
+  reportApi,
+  type ComprehensiveReportData,
+  type ReportDateRange,
+} from '@/features/reports/services/reportApi';
+import { normalizeApiError } from '@/services/api/apiErrors';
 
 interface ReportState {
-  salesSummary: {
-    totalRevenue: number;
-    orderCount: number;
-    averageOrderValue: number;
-    sales: any[];
-  } | null;
-  inventoryValuation: {
-    totalCostValue: number;
-    totalRetailValue: number;
-    potentialGrossProfit: number;
-    totalSkus: number;
-  } | null;
+  reportData: ComprehensiveReportData | null;
+  period: ReportDateRange;
   isLoading: boolean;
-
-  fetchReports: () => Promise<void>;
+  error: string | null;
+  setPeriod: (period: ReportDateRange) => void;
+  fetchReports: (period?: ReportDateRange) => Promise<void>;
 }
 
-export const useReportStore = create<ReportState>((set) => ({
-  salesSummary: null,
-  inventoryValuation: null,
+export const useReportStore = create<ReportState>((set, get) => ({
+  reportData: null,
+  period: '30d',
   isLoading: false,
+  error: null,
 
-  fetchReports: async () => {
-    set({ isLoading: true });
+  setPeriod: (period) => {
+    set({ period });
+    void get().fetchReports(period);
+  },
+
+  fetchReports: async (periodOverride) => {
+    const activePeriod = periodOverride ?? get().period;
+    set({ isLoading: true, error: null });
     try {
-      const [salesSummary, inventoryValuation] = await Promise.all([
-        reportApi.getSalesReport(),
-        reportApi.getInventoryValuation(),
-      ]);
-      set({ salesSummary, inventoryValuation, isLoading: false });
-    } catch {
-      set({ isLoading: false });
+      const res = await reportApi.getReports(activePeriod);
+      set({ reportData: res.data, isLoading: false });
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      set({ error: normalized.message, isLoading: false });
     }
   },
 }));
-

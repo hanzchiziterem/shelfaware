@@ -1,0 +1,64 @@
+.viewport {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2000;
+  max-width: 360px;
+  width: calc(100vw - 40px);
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background-color: var(--color-sidebar);
+  color: #ffffff;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-floating);
+  border: 1px solid var(--color-sidebar-border);
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.description {
+  font-size: 12px;
+  color: var(--color-sidebar-text);
+  margin-top: 3px;
+}
+
+.toneSuccess {
+  color: #4ade80;
+}
+
+.toneError {
+  color: #f87171;
+}
+
+.toneWarning {
+  color: #fbbf24;
+}
+
+.toneInfo {
+  color: #60a5fa;
+}
+
+.closeBtn {
+  color: var(--color-sidebar-text);
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.closeBtn:hover {
+  color: #ffffff;
+}

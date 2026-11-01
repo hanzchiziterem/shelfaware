@@ -1,19 +1,7 @@
-import React, { useEffect } from 'react';
-import { AppRouter } from './router';
-import { useAuthStore } from './store/authStore';
-import { useSettingsStore } from './store/settingsStore';
+import { RouterProvider } from 'react-router-dom';
+import { appRouter } from '@/app/router';
 
-export const App: React.FC = () => {
-  const { init } = useAuthStore();
-  const { fetchSettings } = useSettingsStore();
-
-  useEffect(() => {
-    init();
-    fetchSettings();
-  }, [init, fetchSettings]);
-
-  return <AppRouter />;
-};
-
-export default App;
+export default function App() {
+  return <RouterProvider router={appRouter} />;
+}
 

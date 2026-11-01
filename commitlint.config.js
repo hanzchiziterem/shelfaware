@@ -19,8 +19,9 @@ const Configuration = {
     ],
     "scope-case": [2, "always", "lower-case"],
     "scope-empty": [2, "never"],
+    "body-max-line-length": [0, "always"],
+    "footer-max-line-length": [0, "always"],
   },
 };
 
 module.exports = Configuration;
-
